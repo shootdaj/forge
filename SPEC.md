@@ -296,23 +296,66 @@ The most critical component. Runs during `forge init` and produces a comprehensi
 ```typescript
 // Interactive — this is the only human-in-the-loop phase
 const requirements = await gatherRequirements({
-  // Agent asks deep questions about:
+  // Agent asks deep questions across these topics:
   topics: [
-    "core_functionality",    // What does the system do?
-    "user_workflows",        // How do users interact with it?
-    "edge_cases",            // What can go wrong?
-    "data_model",            // What data, how structured?
-    "auth_security",         // Who can do what?
-    "integrations",          // Third-party services?
-    "performance",           // Scale, latency, throughput?
-    "deployment",            // Where does it run?
-    "observability",         // Logging, metrics, alerting?
-    "acceptance_criteria",   // How do we know it's done?
+    // ─── Core ───
+    "core_functionality",    // What does the system do? What problem does it solve?
+    "user_workflows",        // Step-by-step: how does a user accomplish each goal?
+    "user_personas",         // Who are the users? Different roles/permissions?
+    "edge_cases",            // What can go wrong? What are the boundary conditions?
+
+    // ─── Data & State ───
+    "data_model",            // What data exists? Relationships? Constraints?
+    "data_lifecycle",        // How is data created, updated, archived, deleted?
+    "state_management",      // Client state? Server state? Sync strategy?
+
+    // ─── Security & Compliance ───
+    "auth_security",         // Auth method? Roles/permissions? Session management?
+    "compliance",            // SOC 2? HIPAA? GDPR? PCI DSS? Accessibility (WCAG)?
+                             // → If yes: drives audit logging, encryption, access controls,
+                             //   data retention policies, consent flows, audit trails
+
+    // ─── Integrations ───
+    "integrations",          // Third-party services? APIs consumed? Webhooks?
+    "notifications",         // Email? Push? SMS? In-app? When and what triggers them?
+    "payments",              // Billing model? Subscription? One-time? Free tier?
+
+    // ─── Quality & Reliability ───
+    "performance",           // Scale expectations? Latency targets? Throughput?
+    "error_handling",        // How should errors surface to users? Retry strategy?
+    "offline_resilience",    // What happens when dependencies are down?
+    "data_validation",       // Input validation rules? Business rule constraints?
+
+    // ─── Infrastructure ───
+    "deployment",            // Where does it run? How many environments?
+    "observability",         // Logging, metrics, alerting, health checks?
+    "ci_cd",                 // Build/test/deploy pipeline preferences?
+    "environments",          // Dev/staging/prod? Feature flags? Config management?
+
+    // ─── UX & Design ───
+    "ux_patterns",           // Design system? Component library? Responsive?
+    "accessibility",         // WCAG level? Screen reader support? Keyboard nav?
+    "i18n",                  // Multi-language? RTL support? Locale-specific formatting?
+
+    // ─── Business Context ───
+    "launch_scope",          // MVP vs full product? What can be deferred?
+    "success_metrics",       // How do you measure if this works? KPIs?
+    "acceptance_criteria",   // How do we know each feature is done?
   ]
 });
 
 // Output: structured requirements doc saved to project
 ```
+
+The compliance topic is particularly important — a "yes" to SOC 2, HIPAA, GDPR, or PCI DSS fundamentally changes what gets built:
+
+| Compliance | What It Adds to the Build |
+|---|---|
+| **SOC 2** | Audit logging on all data access, encryption at rest + in transit, access control reviews, change management documentation, incident response runbook |
+| **HIPAA** | PHI encryption, access audit trail, BAA support, minimum necessary access, breach notification flow |
+| **GDPR** | Consent management, data export (right to portability), data deletion (right to erasure), privacy policy, DPA support, cookie consent |
+| **PCI DSS** | Tokenized card storage (never store raw), TLS everywhere, input validation, quarterly vulnerability scans, cardholder data flow diagram |
+| **WCAG 2.1 AA** | Semantic HTML, ARIA labels, keyboard navigation, color contrast ratios, screen reader testing, focus management |
 
 ### 3. Pipeline Controller
 
@@ -1386,12 +1429,15 @@ If Forge crashes mid-phase, it reads these files to determine exactly where to r
 
 ### `forge init`
 
-1. **Interactive requirements gathering** — deep, thorough conversation with user
-   - Core functionality, user workflows, edge cases
-   - Security, auth, data model
-   - External services needed (identifies potential human gates early)
-   - Performance targets, deployment preferences, observability needs
-   - Acceptance criteria for every feature
+1. **Interactive requirements gathering** — deep, thorough conversation across all topics:
+   - Core: functionality, user workflows, personas, edge cases
+   - Data: model, lifecycle, state management
+   - Security & Compliance: auth, SOC 2, HIPAA, GDPR, PCI DSS, WCAG
+   - Integrations: third-party services, notifications, payments
+   - Quality: performance targets, error handling, offline resilience, validation
+   - Infrastructure: deployment, observability, CI/CD, environments
+   - UX: design patterns, accessibility, i18n
+   - Business: launch scope (MVP vs full), success metrics, acceptance criteria
    - Every requirement gets an ID (R1, R2, ...) and structured format
 2. Writes `REQUIREMENTS.md` with structured, numbered requirements (see Requirements Format section)
 3. Asks for Notion parent page ID → creates 8 mandatory doc pages
