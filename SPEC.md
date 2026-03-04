@@ -458,7 +458,10 @@ async function runPipeline(state: ForgeState) {
 async function runSpecComplianceLoop(state: ForgeState) {
   const requirements = parseRequirements("REQUIREMENTS.md");
   let round = 0;
-  const maxRounds = 5;
+  const maxRounds = state.config.maxComplianceRounds;
+
+  // Seed gap history with total requirements (round 0 = baseline)
+  state.gapHistory[0] = requirements.length;
 
   while (round < maxRounds) {
     round++;
@@ -471,6 +474,8 @@ async function runSpecComplianceLoop(state: ForgeState) {
       }
     }
 
+    state.gapHistory[round] = gaps.length;
+
     if (gaps.length === 0) {
       // ALL REQUIREMENTS VERIFIED — we're done
       state.status = "completed";
@@ -479,7 +484,7 @@ async function runSpecComplianceLoop(state: ForgeState) {
     }
 
     // Check convergence — are we making progress?
-    const prevGapCount = state.gapHistory[round - 1] || Infinity;
+    const prevGapCount = state.gapHistory[round - 1];
     if (gaps.length >= prevGapCount) {
       // Not converging — stop and report
       state.status = "stuck";
@@ -488,8 +493,6 @@ async function runSpecComplianceLoop(state: ForgeState) {
       await pauseForHuman(state);
       return;
     }
-
-    state.gapHistory[round] = gaps.length;
 
     // Fix gaps
     for (const gap of gaps) {
@@ -553,6 +556,8 @@ async function runPhase(
   }
 
   // ─── 4. Execute (with mock instructions + cascade) ───
+  // runStepWithCascade wraps runStep with the failure cascade:
+  // retry(3x with different approaches) → skip and flag → stop
   const executeResult = await runStepWithCascade("execute", {
     prompt: buildExecutePrompt(phase, opts.mockServices),
     verify: async () => {
@@ -582,15 +587,14 @@ async function runPhase(
       for (let attempt = 0; attempt < state.config.maxRetries; attempt++) {
         // Diagnose root cause first, then fix
         const diagnosis = await diagnoseFailure(testResults, phase);
-        await runStep("gap-closure", {
+        const stepResult = await runStep("gap-closure", {
           prompt: buildTargetedFixPrompt(diagnosis),
           verify: async () => {
             const retry = await runTests(state.config);
             return retry.failures === 0;
           }
         });
-        const retest = await runTests(state.config);
-        if (retest.failures === 0) break;
+        if (stepResult.verified) break;
       }
     }
 
@@ -608,12 +612,20 @@ async function runPhase(
     }
   }
 
-  // ─── 7. Update TEST_GUIDE.md ───
+  // ─── 7. Verify work (generates VERIFICATION.md) ───
+  await runStep("verify-work", {
+    prompt: `Run /gsd:verify-work ${phase.number}`,
+    verify: async () => fs.existsSync(`${phaseDir}/VERIFICATION.md`)
+  });
+
+  // ─── 8. Update TEST_GUIDE.md ───
   await updateTraceabilityMatrix(phase, state);
 
-  // ─── 8. Update Notion docs (background) ───
+  // ─── 9. Update Notion docs (background) ───
+  // Local files (PHASE_REPORT.md, GAPS.md) are source of truth.
+  // Notion pages are the published version — synced from local files.
   const docsPromise = updateNotionDocs(phase, state);
-  const reportPromise = generatePhaseReport(phase, state);
+  const reportPromise = generatePhaseReport(phase, state); // writes PHASE_REPORT.md + publishes to Notion
   // Don't await — runs in background while next phase starts
 
   state.phases[phase.number] = {
@@ -697,7 +709,9 @@ const verifiers: Verifier[] = [
 
 ### 6. State Manager
 
-Persists orchestrator state to `forge-state.json`. Tracks waves, skipped items, service needs, and convergence history:
+Persists orchestrator state to `forge-state.json`. Tracks waves, skipped items, service needs, convergence history, and UAT results.
+
+**Naming convention:** JSON state uses `snake_case`. TypeScript runtime maps to `camelCase` via a serialization layer (`state.servicesNeeded` ↔ `services_needed` in JSON).
 
 ```json
 {
@@ -722,7 +736,7 @@ Persists orchestrator state to `forge-state.json`. Tracks waves, skipped items, 
       "status": "partial",
       "started_at": "...",
       "attempts": 1,
-      "mocked_services": ["stripe"],
+      "mocked_service_names": ["stripe"],
       "budget_used": 6.10
     },
     "4": {
@@ -742,6 +756,16 @@ Persists orchestrator state to `forge-state.json`. Tracks waves, skipped items, 
       "mocked_in": ["src/payments/", "test/payments/"]
     }
   ],
+  "mock_registry": {
+    "stripe": {
+      "interface": "src/services/stripe.ts",
+      "mock": "src/services/stripe.mock.ts",
+      "real": "src/services/stripe.real.ts",
+      "factory": "src/services/stripe.factory.ts",
+      "test_fixtures": ["test/fixtures/stripe-webhook.json"],
+      "env_vars": ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]
+    }
+  },
   "skipped_items": [
     {
       "requirement": "R7: WebSocket real-time updates",
@@ -753,16 +777,31 @@ Persists orchestrator state to `forge-state.json`. Tracks waves, skipped items, 
       "code_so_far": "src/ws/"
     }
   ],
+  "credentials": {},
+  "human_guidance": {},
   "spec_compliance": {
     "total_requirements": 16,
     "verified": 14,
     "gap_history": [16, 5, 2, 0],
     "rounds_completed": 4
   },
+  "remaining_gaps": [],
+  "uat_results": {
+    "status": "passed",
+    "workflows_tested": 8,
+    "workflows_passed": 8,
+    "workflows_failed": 0
+  },
   "total_budget_used": 18.77,
   "max_budget": 200.00
 }
 ```
+
+**Key fields:**
+- `mock_registry` — detailed file-level mock tracking (global). `mocked_service_names` on phases is just a string[] shorthand.
+- `credentials` — populated by `forge resume --env .env.production`. Maps env var names to values.
+- `human_guidance` — populated by `forge resume --guidance guidance.md`. Maps skipped item IDs to user's guidance text.
+- `remaining_gaps` — populated when spec compliance loop stops converging. Contains the unresolved requirement gaps.
 
 ### 7. Failure Handling
 
@@ -827,16 +866,56 @@ Forge collects ALL human needs during Wave 1 and presents them in ONE interrupti
 
 After the user provides credentials and guidance, `forge resume` picks up exactly where it left off — swaps mocks for real implementations, addresses skipped items, then enters the spec compliance loop.
 
-### 9. Cost Controller
+### 9. Step Runner
+
+The core execution primitive. Every `runStep()` call wraps a single `query()` invocation with budget enforcement, error handling, and verification:
+
+```typescript
+async function runStep(name: string, opts: StepOptions): Promise<StepResult> {
+  // Budget hard-stop: check BEFORE starting
+  if (state.totalBudgetUsed >= state.config.maxBudgetTotal) {
+    throw new BudgetExceededError(state.totalBudgetUsed);
+  }
+
+  try {
+    for await (const message of query({
+      prompt: opts.prompt,
+      options: {
+        permissionMode: "bypassPermissions",
+        maxBudgetUsd: state.config.maxBudgetPerStep,
+        maxTurns: state.config.maxTurnsPerStep,
+        model: state.config.model,
+      }
+    })) {
+      // Extract structured output, track cost
+    }
+  } catch (error) {
+    // SDK errors (network, auth, OOM): log + return failed result
+    // Do NOT retry SDK errors — they're infrastructure, not logic
+    return { verified: false, error: error.message, sdkError: true };
+  }
+
+  // Update cumulative budget
+  state.totalBudgetUsed += stepCost;
+  saveState(state);
+
+  // Run verification
+  const verified = await opts.verify();
+  return { verified, cost: stepCost };
+}
+```
+
+`runStepWithCascade` wraps `runStep` with the failure cascade (retry 3x → skip → stop). Used for execution steps where failure is recoverable.
+
+### 10. Cost Controller
 
 - Per-step budget: `maxBudgetUsd` on each `query()` call
-- Total project budget: tracked in state, abort if exceeded
+- Total project budget: hard stop checked before every step — never exceeded
 - Per-phase budget: sum of steps within a phase
 - Per-wave budget: sum of phases within a wave
 - Log cost per step for full visibility
-- Budget is a hard stop — never exceeded, even mid-step
 
-### 10. Parallelism
+### 11. Parallelism
 
 Forge runs work in parallel at three levels to maximize speed and minimize cost:
 
@@ -1128,10 +1207,12 @@ All page IDs stored in `forge-state.json` for targeted updates.
 After every phase, Forge runs a documentation agent that:
 
 1. **Updates Architecture** if new components/services were added
-2. **Updates API Reference** if new endpoints were created
-3. **Updates Component Index** with new modules
-4. **Creates ADR** for any significant design decision made during the phase
-5. **Creates Phase Report** as a child of Phase Reports:
+2. **Updates Data Flow** if new data paths, event flows, or state transitions were introduced
+3. **Updates API Reference** if new endpoints were created
+4. **Updates Component Index** with new modules
+5. **Updates Dev Workflow** if setup steps, test commands, or development processes changed
+6. **Creates ADR** for any significant design decision made during the phase
+7. **Creates Phase Report** as a child of Phase Reports:
    - Phase goals and requirements addressed
    - Test results (unit/integration/scenario counts)
    - Architecture changes (from `git diff` of non-test files)
@@ -1358,6 +1439,138 @@ Forge verifies mocks match the real API shape:
 - Mock responses must match real API response schemas (if available)
 - `// FORGE:MOCK` tags are searchable — nothing gets missed during swap
 
+## User Acceptance Testing (UAT) — Test Like a Real User
+
+Before Forge returns to the user, it runs the built application and tests it **as a real user would** — not just unit/integration tests, but actually using the app. Tests pass ≠ the app works. Forge verifies both.
+
+### How It Works
+
+After all phases complete and the spec compliance loop passes, Forge spins up the full application and walks through every user workflow defined in REQUIREMENTS.md:
+
+```typescript
+async function runUserAcceptanceTesting(state: ForgeState) {
+  // 1. Start the full application stack
+  execSync("docker compose up -d");
+  await waitForHealthy("http://localhost:3000/health");
+
+  // 2. For each user workflow in REQUIREMENTS.md, test it end-to-end
+  const workflows = extractUserWorkflows(state.requirements);
+
+  for (const workflow of workflows) {
+    await runStep("uat", {
+      prompt: buildUATPrompt(workflow, state),
+      verify: async () => {
+        // Agent reports structured results
+        return workflow.verified;
+      }
+    });
+  }
+
+  // 3. Tear down
+  execSync("docker compose down");
+}
+```
+
+### By Application Type
+
+| App Type | How Forge Tests It | Tool |
+|---|---|---|
+| **Web app** | Launches in headless browser, navigates pages, fills forms, clicks buttons, checks content renders, verifies redirects | Playwright / headless Chrome via Agent SDK |
+| **API** | Sends real HTTP requests, verifies response bodies/status codes, tests auth flows, checks error responses | curl / fetch via Bash |
+| **CLI** | Runs commands with various inputs, checks stdout/stderr, verifies exit codes, tests help output | Bash |
+| **Mobile (React Native/Flutter)** | Runs in emulator, taps through flows (v2 — complex setup) | Deferred to v2 |
+
+### Web App UAT Example
+
+For a web app, Forge launches a browser agent that walks through user workflows:
+
+```typescript
+// Example: Test user registration flow from REQUIREMENTS.md R1
+const uatPrompt = `
+  The application is running at http://localhost:3000.
+  You have a headless browser available.
+
+  Test the following user workflow:
+  R1: User Registration
+  1. Navigate to /register
+  2. Fill in email: test-uat@example.com, password: SecurePass1
+  3. Click "Sign Up"
+  4. Verify: success message appears OR redirect to /verify-email
+  5. Check: user exists in database (curl /api/admin/users?email=test-uat@example.com)
+
+  Edge cases to test:
+  - Submit with empty email → verify error message appears
+  - Submit with weak password → verify specific error shown
+  - Submit with duplicate email → verify 409 error shown to user
+
+  Report results as JSON:
+  {
+    "workflow": "R1",
+    "steps_passed": [...],
+    "steps_failed": [...],
+    "screenshots": [...],  // save screenshots of failures
+    "errors": [...]
+  }
+`;
+```
+
+### Safety Guardrails
+
+UAT tests against a **sandboxed environment** — never production:
+
+| Concern | How Forge Handles It |
+|---|---|
+| **Payments** | Uses Stripe test mode / sandbox credentials. Never real charges. |
+| **Emails** | Routes to Mailhog/Mailtrap (local SMTP capture). Never sends real emails. |
+| **SMS** | Routes to log-only mock. Never sends real texts. |
+| **External APIs** | Uses sandbox/test endpoints where available, mocks where not. |
+| **Data** | Docker test database, wiped after each run. Never touches production data. |
+| **OAuth** | Uses test OAuth apps / mock providers. Never real user accounts. |
+
+The docker-compose.test.yml already sets up this sandboxed environment. UAT runs inside it.
+
+### When UAT Runs
+
+UAT is the **final gate** before Forge declares done:
+
+```
+Wave 1: Build everything → mocks
+Human Checkpoint: credentials
+Wave 2: Real integration
+Wave 3+: Spec compliance (tests pass, traceability verified)
+  ↓
+UAT: Actually use the app as a user would    ← NEW
+  ↓
+  If UAT fails: gap closure → retry UAT
+  If UAT passes: DONE — return to user
+```
+
+### UAT Results in Final Report
+
+```
+═══════════════════════════════════════════════
+  FORGE — Build Complete
+═══════════════════════════════════════════════
+
+  All 16 requirements verified ✓
+  Test pyramid: 45 unit ✓ | 18 integration ✓ | 8 scenario ✓
+
+  User Acceptance Testing:
+  ┌────────────────────────────────────────────┐
+  │ R1: User Registration         ✓ all steps │
+  │ R2: User Login                ✓ all steps │
+  │ R3: Password Reset            ✓ all steps │
+  │ R4: Dashboard                 ✓ all steps │
+  │ R5: Payment (Stripe sandbox)  ✓ all steps │
+  │ R7: WebSocket updates         ✓ all steps │
+  └────────────────────────────────────────────┘
+
+  Budget: $47.23 / $200.00
+  Documentation: Notion pages up to date
+  Deployment: Dockerfile verified, CI passing
+═══════════════════════════════════════════════
+```
+
 ## Observability Enforcement
 
 Forge enforces observability requirements on every project:
@@ -1416,8 +1629,8 @@ During scaffolding, Forge sets up GitHub Flow:
 3. **Atomic merges** — each phase merge is a single merge commit with phase summary
 
 ```typescript
-// Scaffolding step sets up branch protection
-await execSync('gh api repos/{owner}/{repo}/branches/main/protection -X PUT ...');
+// Scaffolding step sets up branch protection via GitHub CLI
+await execSync(`gh api repos/${owner}/${repo}/branches/main/protection -X PUT -f 'required_status_checks={"strict":true,"contexts":["ci"]}' -f 'enforce_admins=false' -f 'required_pull_request_reviews=null' -f 'restrictions=null'`);
 
 // Each phase runs on its own branch
 await execSync(`git checkout -b phase-${phase.number}`);
@@ -1460,6 +1673,7 @@ If Forge crashes mid-phase, it reads these files to determine exactly where to r
   "max_budget_total": 200.00,
   "max_budget_per_step": 15.00,
   "max_retries": 3,
+  "max_compliance_rounds": 5,
   "max_turns_per_step": 200,
   "testing": {
     "stack": "node",
@@ -1504,6 +1718,8 @@ If Forge crashes mid-phase, it reads these files to determine exactly where to r
   }
 }
 ```
+
+**Note:** Testing commands are auto-configured during `forge init` based on detected stack. The example above shows Node.js. For Go: `go test ./... -json`, Python: `pytest --json-report`, Rust: `cargo test -- --format json`, etc.
 
 ## Workflow
 
@@ -1565,8 +1781,18 @@ The main command. Implements the full wave model:
 14. Run full test pyramid (unit → Docker harness up → integration → scenario → harness down)
 15. Fix gaps with root cause diagnosis → targeted fix plan
 16. Loop until converging (each round fewer gaps)
-17. Exit when all requirements verified OR not converging (report to user)
-18. Publish final Notion documentation (Architecture, API, Deployment finalized)
+
+**UAT** — Test like a real user (final gate):
+17. Spin up full application stack (Docker)
+18. Walk through every user workflow: browser for web apps, curl for APIs, bash for CLIs
+19. Verify the app actually works as a user would experience it (not just tests pass)
+20. Safety: sandbox credentials, local SMTP capture, test database — never production
+21. If UAT fails: gap closure → retry UAT
+22. If UAT passes: done
+
+**Finish:**
+23. Publish final Notion documentation (Architecture, API, Deployment finalized)
+24. Exit when all requirements verified + UAT passed OR not converging (report to user)
 
 ### `forge phase N`
 
@@ -1584,11 +1810,28 @@ Read `forge-state.json`, display:
 
 ### `forge resume`
 
+```bash
+# Provide credentials via env file
+forge resume --env .env.production
+
+# Provide guidance for skipped items via markdown file
+forge resume --env .env.production --guidance guidance.md
+
+# guidance.md format:
+# ## R7: WebSocket real-time updates
+# Use SSE (Server-Sent Events) instead of WebSocket. Simpler, no CORS issues.
+#
+# ## R12: PDF export
+# Use @react-pdf/renderer instead of puppeteer. Client-side generation is fine.
+```
+
 Continue from human checkpoint:
-1. Reads `.env.production` (or provided env file) for new credentials
-2. Reads any guidance for skipped items from user input
-3. Enters Wave 2 (real integration + fixes)
-4. Then Wave 3+ (spec compliance loop)
+1. Reads `.env.production` (or provided env file) → populates `state.credentials`
+2. Reads `guidance.md` (if provided) → populates `state.humanGuidance` keyed by requirement ID
+3. Enters Wave 2 (swap mocks using `mock_registry`, apply guidance to skipped items)
+4. Wave 3+ (spec compliance loop)
+5. UAT (final gate — test like a real user)
+6. Return to user only when everything passes
 
 ## StrongDM Learnings Applied
 
@@ -1645,9 +1888,12 @@ StrongDM's dark factory (Attractor) is the only known production Level 4 autonom
 - [ ] Cost tracked per step, phase, wave, and total
 - [ ] `forge resume` picks up exactly where it left off with new credentials/guidance
 - [ ] `forge status` shows human-readable progress: wave, phase table, spec compliance, budget
+- [ ] User Acceptance Testing: app spun up and tested as a real user would (browser/curl/bash by app type)
+- [ ] UAT safety guardrails: sandbox credentials, local SMTP, test DB — never production
+- [ ] UAT as final gate: only return to user after UAT passes (or not converging)
 
 ### v2
-- [ ] Agent Teams for intra-phase parallelism
+- [ ] Agent Teams for cross-repo / multi-project parallelism
 - [ ] Holdout evaluation (separate AI reviews against requirements, never sees implementation)
 - [ ] Webhook/Slack notifications for human checkpoint
 - [ ] Live dashboard showing wave progress, costs, spec compliance, Notion doc freshness
@@ -1686,7 +1932,8 @@ forge/
 │   │   ├── lint.ts           # Linter checks
 │   │   ├── docker.ts         # Docker-based smoke/integration tests
 │   │   ├── observability.ts  # Health endpoint, logging, metrics verification
-│   │   └── deployment.ts     # Dockerfile, env vars, deploy config verification
+│   │   ├── deployment.ts     # Dockerfile, env vars, deploy config verification
+│   │   └── uat.ts            # User acceptance testing (browser/curl/bash by app type)
 │   ├── state.ts              # State manager (waves, services, skipped items, convergence)
 │   ├── config.ts             # Config file management
 │   ├── cost.ts               # Budget tracking and enforcement
