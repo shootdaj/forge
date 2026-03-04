@@ -407,16 +407,25 @@ async function runPipeline(state: ForgeState) {
         mockServices: externalServices,
         onBlocker: "retry-then-skip",
       });
-      if (result.skipped.length > 0) state.skippedItems.push(...result.skipped);
-      if (externalServices.length > 0) state.servicesNeeded.push(...externalServices);
+      return { result, externalServices };
     };
 
+    let phaseResults: { result: PhaseResult; externalServices: Service[] }[];
     if (pendingPhases.length === 1) {
-      await runOne(pendingPhases[0]);
+      phaseResults = [await runOne(pendingPhases[0])];
     } else {
       // Run independent phases concurrently (max 3)
-      await Promise.all(pendingPhases.slice(0, state.config.maxConcurrentPhases).map(runOne));
+      phaseResults = await Promise.all(
+        pendingPhases.slice(0, state.config.parallelism.maxConcurrentPhases).map(runOne)
+      );
     }
+
+    // Merge results into state AFTER all concurrent phases complete (avoid race condition)
+    for (const { result, externalServices } of phaseResults) {
+      if (result.skipped.length > 0) state.skippedItems.push(...result.skipped);
+      if (externalServices.length > 0) state.servicesNeeded.push(...externalServices);
+    }
+    saveState(state);
   }
 
   // ─── HUMAN CHECKPOINT (if needed) ───
@@ -460,8 +469,11 @@ async function runSpecComplianceLoop(state: ForgeState) {
   let round = 0;
   const maxRounds = state.config.maxComplianceRounds;
 
-  // Seed gap history with total requirements (round 0 = baseline)
-  state.gapHistory[0] = requirements.length;
+  // Seed gap history with total requirements (round 0 = baseline).
+  // This is intentionally generous — gives the first round room to improve
+  // even if it doesn't fix everything. If round 1 has as many gaps as
+  // total requirements, convergence fails immediately (correct).
+  state.specCompliance.gapHistory[0] = requirements.length;
 
   while (round < maxRounds) {
     round++;
@@ -474,7 +486,9 @@ async function runSpecComplianceLoop(state: ForgeState) {
       }
     }
 
-    state.gapHistory[round] = gaps.length;
+    state.specCompliance.gapHistory[round] = gaps.length;
+    state.specCompliance.verified = requirements.length - gaps.length;
+    state.specCompliance.roundsCompleted = round;
 
     if (gaps.length === 0) {
       // ALL REQUIREMENTS VERIFIED — we're done
@@ -484,7 +498,7 @@ async function runSpecComplianceLoop(state: ForgeState) {
     }
 
     // Check convergence — are we making progress?
-    const prevGapCount = state.gapHistory[round - 1];
+    const prevGapCount = state.specCompliance.gapHistory[round - 1];
     if (gaps.length >= prevGapCount) {
       // Not converging — stop and report
       state.status = "stuck";
@@ -630,9 +644,15 @@ async function runPhase(
 
   state.phases[phase.number] = {
     status: skipped.length > 0 ? "partial" : "completed",
-    skipped,
+    started_at: phaseStartTime,
+    completed_at: new Date().toISOString(),
+    attempts: executeResult.attempts || 1,
+    test_results: await getTestSummary(state.config),
+    budget_used: phaseBudget,
+    mocked_service_names: opts.mockServices.map(s => s.name),
   };
-  saveState(state);
+  // Note: saveState() called by pipeline controller after concurrent phases complete
+  // to avoid race conditions when multiple phases run in parallel.
 
   return { skipped, docsPromise, reportPromise };
 }
@@ -649,8 +669,8 @@ interface Verifier {
   check: () => Promise<{ passed: boolean; details: string }>;
 }
 
-const verifiers: Verifier[] = [
-  {
+const verifiers: Record<string, Verifier> = {
+  files: {
     name: "files-exist",
     check: async () => {
       const expected = getExpectedFiles(phase);
@@ -658,7 +678,7 @@ const verifiers: Verifier[] = [
       return { passed: missing.length === 0, details: `Missing: ${missing}` };
     }
   },
-  {
+  tests: {
     name: "tests-pass",
     check: async () => {
       const result = execSync("npm test -- --json", { encoding: "utf8" });
@@ -669,7 +689,7 @@ const verifiers: Verifier[] = [
       };
     }
   },
-  {
+  typecheck: {
     name: "typecheck",
     check: async () => {
       try {
@@ -680,7 +700,7 @@ const verifiers: Verifier[] = [
       }
     }
   },
-  {
+  lint: {
     name: "lint",
     check: async () => {
       try {
@@ -691,7 +711,7 @@ const verifiers: Verifier[] = [
       }
     }
   },
-  {
+  docker: {
     name: "docker-smoke",
     check: async () => {
       try {
@@ -704,7 +724,7 @@ const verifiers: Verifier[] = [
       }
     }
   }
-];
+};
 ```
 
 ### 6. State Manager
@@ -792,8 +812,7 @@ Persists orchestrator state to `forge-state.json`. Tracks waves, skipped items, 
     "workflows_passed": 8,
     "workflows_failed": 0
   },
-  "total_budget_used": 18.77,
-  "max_budget": 200.00
+  "total_budget_used": 18.77
 }
 ```
 
@@ -890,9 +909,15 @@ async function runStep(name: string, opts: StepOptions): Promise<StepResult> {
       // Extract structured output, track cost
     }
   } catch (error) {
-    // SDK errors (network, auth, OOM): log + return failed result
-    // Do NOT retry SDK errors — they're infrastructure, not logic
-    return { verified: false, error: error.message, sdkError: true };
+    if (error instanceof BudgetExhaustedError) {
+      // Per-step budget hit — SDK stopped the agent mid-work.
+      // Treat as partial completion, run verification to see what got done.
+      // Don't retry — the work may be partially complete.
+    } else {
+      // Other SDK errors (network, auth, OOM): log + return failed result
+      // Do NOT retry SDK errors — they're infrastructure, not logic
+      return { verified: false, error: error.message, sdkError: true };
+    }
   }
 
   // Update cumulative budget
@@ -1098,7 +1123,7 @@ services:
     image: redis:7
   test:
     build: .
-    command: npm run test:integration && npm run test:e2e
+    command: sh -c "npm run test:integration && npm run test:e2e"
     depends_on: [app, db, redis]
 ```
 
@@ -1417,7 +1442,7 @@ Every mocked service follows this pattern:
 Forge maintains a precise list of all mocked files in state:
 ```json
 {
-  "mocked_services": {
+  "mock_registry": {
     "stripe": {
       "interface": "src/services/stripe.ts",
       "mock": "src/services/stripe.mock.ts",
@@ -1430,7 +1455,7 @@ Forge maintains a precise list of all mocked files in state:
 }
 ```
 
-During Wave 2, Forge uses this registry to systematically swap every mock.
+During Wave 2, Forge uses `mock_registry` from state to systematically swap every mock.
 
 ### Mock Verification
 
@@ -1466,7 +1491,16 @@ async function runUserAcceptanceTesting(state: ForgeState) {
     });
   }
 
-  // 3. Tear down
+  // 3. Update state with UAT results
+  state.uatResults = {
+    status: workflows.every(w => w.verified) ? "passed" : "failed",
+    workflows_tested: workflows.length,
+    workflows_passed: workflows.filter(w => w.verified).length,
+    workflows_failed: workflows.filter(w => !w.verified).length,
+  };
+  saveState(state);
+
+  // 4. Tear down
   execSync("docker compose down");
 }
 ```
@@ -1736,9 +1770,9 @@ If Forge crashes mid-phase, it reads these files to determine exactly where to r
    - Business: launch scope (MVP vs full), success metrics, acceptance criteria
    - Every requirement gets an ID (R1, R2, ...) and structured format
 2. Writes `REQUIREMENTS.md` with structured, numbered requirements (see Requirements Format section)
-3. Asks for Notion parent page ID → creates 8 mandatory doc pages
-4. Runs GSD new-project via `query()` (research, roadmap creation)
-5. Detects stack, configures testing commands
+3. Runs GSD new-project via `query()` (research, roadmap creation)
+4. Detects stack, configures testing commands
+5. Asks for Notion parent page ID → creates 8 mandatory doc pages (populated after research)
 6. Scaffolds test infrastructure: directories, docker-compose.test.yml, TEST_GUIDE.md
 7. Injects testing methodology into project CLAUDE.md
 8. Identifies external services → creates service manifest in state
@@ -1791,8 +1825,11 @@ The main command. Implements the full wave model:
 22. If UAT passes: done
 
 **Finish:**
-23. Publish final Notion documentation (Architecture, API, Deployment finalized)
-24. Exit when all requirements verified + UAT passed OR not converging (report to user)
+23. Run `gsd:audit-milestone` to verify milestone achieved its intent
+24. If audit finds gaps: create gap phases and execute them
+25. Run `gsd:complete-milestone` (archive, git tag)
+26. Publish final Notion documentation (Architecture, API, Deployment finalized)
+27. Exit when all requirements verified + UAT passed OR not converging (report to user)
 
 ### `forge phase N`
 
@@ -1825,9 +1862,10 @@ forge resume --env .env.production --guidance guidance.md
 # Use @react-pdf/renderer instead of puppeteer. Client-side generation is fine.
 ```
 
-Continue from human checkpoint:
-1. Reads `.env.production` (or provided env file) → populates `state.credentials`
-2. Reads `guidance.md` (if provided) → populates `state.humanGuidance` keyed by requirement ID
+Continue from human checkpoint (also used for crash recovery — reads file-based phase checkpoints):
+1. Reads `forge-state.json` + file-based checkpoints (CONTEXT.md, PLAN.md, etc.) to determine resume point
+2. Reads `.env.production` (or provided env file) → populates `state.credentials`
+3. Reads `guidance.md` (if provided) → populates `state.humanGuidance` keyed by requirement ID
 3. Enters Wave 2 (swap mocks using `mock_registry`, apply guidance to skipped items)
 4. Wave 3+ (spec compliance loop)
 5. UAT (final gate — test like a real user)
@@ -1879,7 +1917,7 @@ StrongDM's dark factory (Attractor) is the only known production Level 4 autonom
 - [ ] Spec compliance loop: verify every requirement, check traceability, fix gaps, converge
 - [ ] Exit condition is "all requirements verified with passing tests" not "all phases ran"
 - [ ] Atomic commits with requirement IDs (feat(R1): ...) for full traceability
-- [ ] Notion docs updated per phase: Architecture, API Ref, Components, ADRs, Phase Reports
+- [ ] Notion docs updated per phase: Architecture, Data Flow, API Ref, Components, Dev Workflow, ADRs, Phase Reports
 - [ ] Phase Reports: goals, test results, architecture changes, git diffs, budget
 - [ ] Observability enforcement: health endpoint, structured logging, error logging verified
 - [ ] Deployment strategy verified: Dockerfile builds, env vars consistent, deploy config valid
@@ -1891,6 +1929,8 @@ StrongDM's dark factory (Attractor) is the only known production Level 4 autonom
 - [ ] User Acceptance Testing: app spun up and tested as a real user would (browser/curl/bash by app type)
 - [ ] UAT safety guardrails: sandbox credentials, local SMTP, test DB — never production
 - [ ] UAT as final gate: only return to user after UAT passes (or not converging)
+- [ ] GitHub Flow: branch protection on main, each phase on its own branch, merged after verification
+- [ ] Parallelism: independent phases run concurrently, verification checks run in parallel
 
 ### v2
 - [ ] Agent Teams for cross-repo / multi-project parallelism
@@ -1932,8 +1972,8 @@ forge/
 │   │   ├── lint.ts           # Linter checks
 │   │   ├── docker.ts         # Docker-based smoke/integration tests
 │   │   ├── observability.ts  # Health endpoint, logging, metrics verification
-│   │   ├── deployment.ts     # Dockerfile, env vars, deploy config verification
-│   │   └── uat.ts            # User acceptance testing (browser/curl/bash by app type)
+│   │   └── deployment.ts     # Dockerfile, env vars, deploy config verification
+│   ├── uat.ts                # User acceptance testing orchestration (browser/curl/bash by app type)
 │   ├── state.ts              # State manager (waves, services, skipped items, convergence)
 │   ├── config.ts             # Config file management
 │   ├── cost.ts               # Budget tracking and enforcement
