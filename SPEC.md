@@ -738,6 +738,122 @@ After the user provides credentials and guidance, `forge resume` picks up exactl
 - Log cost per step for full visibility
 - Budget is a hard stop — never exceeded, even mid-step
 
+### 10. Parallelism
+
+Forge runs work in parallel at three levels to maximize speed and minimize cost:
+
+#### Level 1: Verification (Always Parallel)
+
+All verification checks run concurrently — they're independent:
+
+```typescript
+// Don't run sequentially — run all at once
+const results = await Promise.all([
+  verifiers.files.check(),
+  verifiers.tests.check(),       // unit tests
+  verifiers.typecheck.check(),
+  verifiers.lint.check(),
+  verifiers.testCoverage.check(),
+  verifiers.observability.check(),
+]);
+// Docker smoke test runs after others pass (needs clean state)
+if (results.every(r => r.passed)) {
+  await verifiers.docker.check();
+}
+```
+
+#### Level 2: Within a Phase (Subagents)
+
+The Agent SDK's `agents` option lets a single `query()` call spawn parallel subagents. Forge uses this when a phase's plan has independent task groups:
+
+```typescript
+// Phase plan analyzed for independent task groups
+const taskGroups = analyzeDependencies(plan);
+// e.g., taskGroups = [
+//   { name: "backend", tasks: ["API endpoints", "DB queries"] },
+//   { name: "frontend", tasks: ["Components", "Pages"] },
+//   { name: "tests", tasks: ["Unit tests", "Integration tests"], dependsOn: ["backend", "frontend"] }
+// ]
+
+await query({
+  prompt: `Execute phase ${phase.number}. Task groups: ${JSON.stringify(taskGroups)}`,
+  options: {
+    agents: {
+      "backend": {
+        description: "Implements backend code",
+        prompt: `Implement these tasks: ${taskGroups.backend.tasks}`,
+        tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
+      },
+      "frontend": {
+        description: "Implements frontend code",
+        prompt: `Implement these tasks: ${taskGroups.frontend.tasks}`,
+        tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
+      },
+      "tests": {
+        description: "Writes all tests after implementation",
+        prompt: `Write tests for: ${taskGroups.tests.tasks}`,
+        tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
+      }
+    }
+  }
+});
+```
+
+The lead agent coordinates: backend + frontend run in parallel, tests wait for both to complete.
+
+#### Level 3: Across Phases (Concurrent query() Calls)
+
+Some phases are independent — they don't depend on each other's output. Forge builds a dependency graph from the roadmap and runs independent phases concurrently:
+
+```typescript
+// Parse roadmap into dependency graph
+const phases = parseRoadmap(".planning/ROADMAP.md");
+const graph = buildDependencyGraph(phases);
+// e.g., graph = {
+//   1: { deps: [] },           // Core models — no deps
+//   2: { deps: [1] },          // API endpoints — needs models
+//   3: { deps: [1] },          // Auth system — needs models
+//   4: { deps: [2, 3] },       // Frontend — needs API + auth
+//   5: { deps: [1] },          // Background jobs — needs models
+// }
+// Phases 2, 3, 5 can run in parallel (all only depend on 1)
+
+// Execute in waves of independent phases
+const executionWaves = topologicalSort(graph);
+// executionWaves = [[1], [2, 3, 5], [4]]
+
+for (const wave of executionWaves) {
+  if (wave.length === 1) {
+    await runPhase(wave[0], state);
+  } else {
+    // Run independent phases concurrently
+    await Promise.all(
+      wave.map(phase => runPhase(phase, state))
+    );
+  }
+}
+```
+
+**Concurrency limits:** Max 3 concurrent phases (budget and resource control). Configurable in `forge.config.json`.
+
+**Git conflict handling:** Concurrent phases work on different files (enforced by phase scope). If a merge conflict occurs, Forge runs a resolution agent.
+
+#### Level 4: Documentation (Background)
+
+Notion updates and phase report generation run in the background while the next phase starts:
+
+```typescript
+// Don't block on docs — run in background
+const docsPromise = updateNotionDocs(phase, results);
+const reportPromise = generatePhaseReport(phase, results);
+
+// Start next phase immediately
+await runPhase(nextPhase, state);
+
+// Await docs before final summary
+await Promise.all([docsPromise, reportPromise]);
+```
+
 ## What Forge Builds (Full Production System)
 
 Forge doesn't just write application code. It builds everything a production system needs:
@@ -1248,6 +1364,11 @@ If Forge crashes mid-phase, it reads these files to determine exactly where to r
       "dev_workflow": "page-id",
       "phase_reports": "page-id"
     }
+  },
+  "parallelism": {
+    "max_concurrent_phases": 3,
+    "enable_subagents": true,
+    "background_docs": true
   },
   "deployment": {
     "target": "vercel",
