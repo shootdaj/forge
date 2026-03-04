@@ -22,18 +22,18 @@ Forge solves this by moving orchestration into **code**:
 
 ### Mode 1: Interactive Requirements Gathering
 
-Forge starts by having a deep conversation with the user. This is the only interactive phase. The agent asks about:
+Forge starts by having a deep conversation with the user. This is the only interactive phase. The agent asks about 25+ topics across 8 categories:
 
-- Core functionality and user workflows
-- Edge cases, error handling, failure modes
-- Performance requirements, scale expectations
-- Security model, auth flows, data sensitivity
-- Deployment targets, infrastructure preferences
-- Third-party integrations, API dependencies
-- QA strategy, acceptance criteria
-- Observability needs (logging, metrics, alerting)
+- **Core:** functionality, user workflows, personas, edge cases
+- **Data:** model, lifecycle, state management, sync strategy
+- **Security & Compliance:** auth, SOC 2, HIPAA, GDPR, PCI DSS, WCAG
+- **Integrations:** third-party services, notifications, payments, webhooks
+- **Quality:** performance targets, error handling, offline resilience, validation
+- **Infrastructure:** deployment, observability, CI/CD, environments, feature flags
+- **UX:** design patterns, accessibility, i18n/RTL
+- **Business:** launch scope (MVP vs full), success metrics, acceptance criteria
 
-This produces a comprehensive requirements document. The quality of this phase determines everything — if requirements are thorough, autonomous execution succeeds. If requirements are vague, it fails.
+This produces a comprehensive, numbered requirements document (R1, R2, ...) where every requirement has acceptance criteria, edge cases, performance targets, security notes, and observability requirements. The quality of this phase determines everything — if requirements are thorough, autonomous execution succeeds. If requirements are vague, it fails.
 
 ### Mode 2: Autonomous Execution (Wave Model)
 
@@ -193,14 +193,18 @@ AX is a prompt-based orchestrator — it reads markdown instructions and follows
 
 | GSD Skill | What Forge Uses It For |
 |---|---|
-| `/gsd:new-project` | Initial project setup (research, requirements, roadmap) |
-| `/gsd:plan-phase N` | Create phase plan (research → plan → verify) |
-| `/gsd:execute-phase N` | Implement the plan (atomic commits) |
+| `/gsd:new-project` | Initial project setup — Forge passes its REQUIREMENTS.md so GSD skips its own questioning and goes straight to research + roadmap creation |
+| `/gsd:discuss-phase N` | Phase context gathering — gray area identification, decision locking (Forge automates the responses based on requirements doc, only pauses if genuinely ambiguous) |
+| `/gsd:plan-phase N` | Create phase plan (research → plan → verify). Forge then runs its own plan-checker on top of GSD's |
+| `/gsd:execute-phase N` | Implement the plan (atomic commits with requirement IDs) |
+| `/gsd:add-tests N` | Generate additional tests for completed phases based on UAT criteria |
 | `/gsd:verify-work N` | Goal-backward verification |
 | `/gsd:audit-milestone` | Verify milestone completion |
 | `/gsd:complete-milestone` | Archive and tag |
 
 Each skill runs inside its own `query()` call with a fresh context. Forge doesn't chain them in a single prompt — it runs one, verifies the result programmatically, then runs the next.
+
+**Important:** When calling `/gsd:new-project`, Forge injects the already-gathered requirements so GSD doesn't re-ask questions the user already answered. The prompt includes: "Requirements have already been gathered. See REQUIREMENTS.md. Skip questioning and proceed directly to research and roadmap creation."
 
 ## How the Agent SDK Works
 
@@ -388,22 +392,30 @@ async function runPipeline(state: ForgeState) {
     });
   }
 
-  // Step 3: Execute each phase (mock external services, skip-and-flag on blockers)
+  // Step 3: Execute phases (parallel where possible, mock external services)
   const phases = parseRoadmap(".planning/ROADMAP.md");
-  for (const phase of phases) {
-    if (state.phases[phase.number]?.status === "completed") continue;
+  const graph = buildDependencyGraph(phases);
+  const executionWaves = topologicalSort(graph); // [[1], [2, 3, 5], [4]]
 
-    const externalServices = detectExternalServices(phase);
-    const result = await runPhase(phase, state, {
-      mockServices: externalServices,  // Build with mocks, don't stop
-      onBlocker: "retry-then-skip",    // Cascade: retry → skip → continue
-    });
+  for (const wave of executionWaves) {
+    const pendingPhases = wave.filter(p => state.phases[p.number]?.status !== "completed");
+    if (pendingPhases.length === 0) continue;
 
-    if (result.skipped.length > 0) {
-      state.skippedItems.push(...result.skipped);
-    }
-    if (externalServices.length > 0) {
-      state.servicesNeeded.push(...externalServices);
+    const runOne = async (phase: Phase) => {
+      const externalServices = detectExternalServices(phase);
+      const result = await runPhase(phase, state, {
+        mockServices: externalServices,
+        onBlocker: "retry-then-skip",
+      });
+      if (result.skipped.length > 0) state.skippedItems.push(...result.skipped);
+      if (externalServices.length > 0) state.servicesNeeded.push(...externalServices);
+    };
+
+    if (pendingPhases.length === 1) {
+      await runOne(pendingPhases[0]);
+    } else {
+      // Run independent phases concurrently (max 3)
+      await Promise.all(pendingPhases.slice(0, state.config.maxConcurrentPhases).map(runOne));
     }
   }
 
@@ -495,7 +507,7 @@ async function runSpecComplianceLoop(state: ForgeState) {
 
 ### 4. Phase Runner
 
-Runs a single phase. Handles external service mocking and the retry→skip→stop cascade for unexpected blockers.
+Runs a single phase through the full cycle: context → plan → verify plan → execute → test → gap closure → docs. Handles external service mocking and the retry→skip→stop cascade.
 
 ```typescript
 async function runPhase(
@@ -504,32 +516,53 @@ async function runPhase(
   opts: { mockServices: Service[]; onBlocker: "retry-then-skip" }
 ): Promise<PhaseResult> {
   const skipped: SkippedItem[] = [];
+  const phaseDir = `.planning/phases/phase-${phase.number}`;
 
-  // Plan
-  await runStep("plan", {
-    prompt: buildPlanPrompt(phase, opts.mockServices),
-    verify: async () => {
-      return fs.existsSync(`.planning/phases/phase-${phase.number}/PLAN.md`);
-    }
-  });
+  // ─── 1. Context Gathering (skip if CONTEXT.md exists) ───
+  if (!fs.existsSync(`${phaseDir}/CONTEXT.md`)) {
+    await runStep("context", {
+      prompt: buildContextPrompt(phase, state.requirements),
+      // Agent identifies gray areas, makes decisions, captures deferred ideas
+      verify: async () => fs.existsSync(`${phaseDir}/CONTEXT.md`)
+    });
+  }
 
-  // Execute (with mock instructions for external services)
+  // ─── 2. Plan (skip if PLAN.md exists) ───
+  if (!fs.existsSync(`${phaseDir}/PLAN.md`)) {
+    await runStep("plan", {
+      prompt: buildPlanPrompt(phase, opts.mockServices),
+      verify: async () => fs.existsSync(`${phaseDir}/PLAN.md`)
+    });
+  }
+
+  // ─── 3. Verify Plan (code-based, not agent) ───
+  const planIssues = await verifyPlan(phase, state.requirements);
+  if (planIssues.missingTestTasks.length > 0) {
+    // Inject test tasks into plan (deterministic code edit)
+    await injectTestTasks(`${phaseDir}/PLAN.md`, planIssues.missingTestTasks);
+  }
+  if (planIssues.missingRequirements.length > 0) {
+    // Re-plan with feedback
+    await runStep("re-plan", {
+      prompt: `Plan missing coverage for: ${planIssues.missingRequirements}. Update PLAN.md.`,
+      verify: async () => {
+        const recheck = await verifyPlan(phase, state.requirements);
+        return recheck.missingRequirements.length === 0;
+      }
+    });
+  }
+
+  // ─── 4. Execute (with mock instructions + cascade) ───
   const executeResult = await runStepWithCascade("execute", {
     prompt: buildExecutePrompt(phase, opts.mockServices),
     verify: async () => {
       const log = execSync(`git log --oneline -20`).toString();
       return log.includes(`phase-${phase.number}`);
     },
-    // The cascade: retry with different approach → skip → continue
     onFailure: async (error, attempt) => {
       if (attempt < 3) {
-        // Retry with different approach
-        return {
-          action: "retry",
-          newPrompt: buildRetryPrompt(phase, error, attempt)
-        };
+        return { action: "retry", newPrompt: buildRetryPrompt(phase, error, attempt) };
       } else {
-        // Skip and flag
         skipped.push({
           requirement: phase.requirements,
           phase: phase.number,
@@ -541,15 +574,16 @@ async function runPhase(
     }
   });
 
-  // Test (only if execution succeeded)
+  // ─── 5. Test + Gap Closure (only if execution succeeded) ───
   if (executeResult.status !== "skipped") {
     const testResults = await runTests(state.config);
 
     if (testResults.failures > 0) {
-      // Gap closure within the phase
       for (let attempt = 0; attempt < state.config.maxRetries; attempt++) {
+        // Diagnose root cause first, then fix
+        const diagnosis = await diagnoseFailure(testResults, phase);
         await runStep("gap-closure", {
-          prompt: buildPhaseGapPrompt(testResults, phase),
+          prompt: buildTargetedFixPrompt(diagnosis),
           verify: async () => {
             const retry = await runTests(state.config);
             return retry.failures === 0;
@@ -559,7 +593,28 @@ async function runPhase(
         if (retest.failures === 0) break;
       }
     }
+
+    // ─── 6. Verify test coverage ───
+    const coverageResult = await verifyTestCoverage(phase);
+    if (!coverageResult.passed) {
+      // Use gsd:add-tests to generate missing tests
+      await runStep("add-tests", {
+        prompt: `Run /gsd:add-tests ${phase.number}. Missing: ${coverageResult.details}`,
+        verify: async () => {
+          const recheck = await verifyTestCoverage(phase);
+          return recheck.passed;
+        }
+      });
+    }
   }
+
+  // ─── 7. Update TEST_GUIDE.md ───
+  await updateTraceabilityMatrix(phase, state);
+
+  // ─── 8. Update Notion docs (background) ───
+  const docsPromise = updateNotionDocs(phase, state);
+  const reportPromise = generatePhaseReport(phase, state);
+  // Don't await — runs in background while next phase starts
 
   state.phases[phase.number] = {
     status: skipped.length > 0 ? "partial" : "completed",
@@ -567,7 +622,7 @@ async function runPhase(
   };
   saveState(state);
 
-  return { skipped };
+  return { skipped, docsPromise, reportPromise };
 }
 ```
 
@@ -1351,6 +1406,31 @@ Forge verifies:
 - Environment variables are consistent across all configs
 - `.env.example` lists all required vars
 - Deployment config (vercel.json, fly.toml, etc.) exists and is valid
+
+## GitHub Flow (Branch Protection + Phase Branching)
+
+During scaffolding, Forge sets up GitHub Flow:
+
+1. **Branch protection on main** — CI required to pass, no direct pushes
+2. **Phase branching** — each phase executes on `phase-N` branch, merged to main after verification
+3. **Atomic merges** — each phase merge is a single merge commit with phase summary
+
+```typescript
+// Scaffolding step sets up branch protection
+await execSync('gh api repos/{owner}/{repo}/branches/main/protection -X PUT ...');
+
+// Each phase runs on its own branch
+await execSync(`git checkout -b phase-${phase.number}`);
+// ... execute phase ...
+// After verification passes:
+await execSync(`git checkout main && git merge --no-ff phase-${phase.number}`);
+```
+
+This means:
+- `main` is always in a working state
+- Each phase's work is isolated until verified
+- If a phase fails completely, main is unaffected
+- Git history shows clear phase boundaries
 
 ## Phase State Machine (File-Based Checkpoints)
 
