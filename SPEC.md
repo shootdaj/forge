@@ -753,6 +753,466 @@ Forge doesn't just write application code. It builds everything a production sys
 | **Deployment** | Deploy configs (Vercel/Railway/Fly/K8s), environment management |
 | **Documentation** | API docs, architecture notes, deployment runbook |
 
+## Testing Pyramid (Enforced on Every Project Forge Builds)
+
+Forge enforces a three-tier testing pyramid on every project it builds. This isn't optional — every phase must produce tests at the appropriate tiers, and Forge verifies test coverage programmatically.
+
+### How It Works
+
+**1. During scaffolding (Wave 1),** Forge:
+- Injects testing methodology into the project's `CLAUDE.md` so all GSD agents naturally write tests
+- Creates `TEST_GUIDE.md` with requirement-to-test mapping
+- Sets up test directories, config files, and test harness (docker-compose.test.yml)
+- Detects the stack and configures idiomatic test runners
+
+**2. In every execution prompt,** Forge includes:
+```
+Testing requirements:
+- Every new function/method needs unit tests
+- Every new endpoint/integration point needs integration tests
+- Every new user workflow needs a scenario test
+- Use semantic test names (TestUserCanResetPassword), NOT Gherkin
+- Reference TEST_GUIDE.md for requirement-to-test mapping
+```
+
+**3. After every phase,** Forge verifies:
+- New code has corresponding test files (not just "tests pass" but "tests exist for new code")
+- All three tiers run: unit → integration → scenario
+- Test count went UP (new code = new tests, always)
+
+### The Three Tiers
+
+| Tier | What It Tests | Runs | Example |
+|---|---|---|---|
+| **Unit** | Individual functions, pure logic, edge cases | Every phase, fast, no external deps | `TestParseConfig_EmptyFile`, `TestCalculateTotal_WithDiscount` |
+| **Integration** | API endpoints, database queries, service interactions | Every phase, may need Docker harness | `TestCreateUser_DuplicateEmail`, `TestStripeWebhook_PaymentSuccess` |
+| **Scenario** | Full user workflows end-to-end | Every phase, Docker harness required | `TestUserSignsUp_VerifiesEmail_CreatesFirstProject` |
+
+### Test Harness
+
+For integration and scenario tests, Forge scaffolds a Docker-based test harness:
+
+```yaml
+# docker-compose.test.yml (auto-generated during scaffolding)
+services:
+  app:
+    build: .
+    environment:
+      - DATABASE_URL=postgres://test:test@db:5432/testdb
+  db:
+    image: postgres:16
+  redis:
+    image: redis:7
+  test:
+    build: .
+    command: npm run test:integration && npm run test:e2e
+    depends_on: [app, db, redis]
+```
+
+### Test Verification (Code, Not Agent Self-Report)
+
+```typescript
+// Forge verifies test coverage programmatically
+const testCoverageVerifier: Verifier = {
+  name: "test-coverage",
+  check: async () => {
+    // Check that new source files have corresponding test files
+    const newFiles = getFilesAddedInPhase(phase);
+    const sourceFiles = newFiles.filter(f => isSourceFile(f));
+    const testFiles = newFiles.filter(f => isTestFile(f));
+
+    const untestedFiles = sourceFiles.filter(src => {
+      const expectedTest = toTestPath(src); // src/auth.ts → test/auth.test.ts
+      return !testFiles.includes(expectedTest) && !fs.existsSync(expectedTest);
+    });
+
+    return {
+      passed: untestedFiles.length === 0,
+      details: untestedFiles.length > 0
+        ? `Missing tests for: ${untestedFiles.join(", ")}`
+        : `All ${sourceFiles.length} new files have tests`
+    };
+  }
+};
+
+// Run the full pyramid
+const pyramidVerifier: Verifier = {
+  name: "test-pyramid",
+  check: async () => {
+    const unit = await runAndParse(config.testing.unit_command);
+    if (!unit.passed) return { passed: false, details: `Unit: ${unit.details}` };
+
+    // Spin up harness for integration + scenario
+    execSync(`docker compose -f ${config.testing.docker_compose_file} up -d`);
+    try {
+      const integration = await runAndParse(config.testing.integration_command);
+      if (!integration.passed) return { passed: false, details: `Integration: ${integration.details}` };
+
+      const scenario = await runAndParse(config.testing.scenario_command);
+      if (!scenario.passed) return { passed: false, details: `Scenario: ${scenario.details}` };
+
+      return {
+        passed: true,
+        details: `Unit: ${unit.count} ✓ | Integration: ${integration.count} ✓ | Scenario: ${scenario.count} ✓`
+      };
+    } finally {
+      execSync(`docker compose -f ${config.testing.docker_compose_file} down`);
+    }
+  }
+};
+```
+
+### What Gets Injected Into Project CLAUDE.md
+
+During scaffolding, Forge appends this to the project's `CLAUDE.md`:
+
+```markdown
+## Testing Requirements (Enforced by Forge)
+
+Every feature requires tests at all applicable tiers:
+
+1. **Unit tests** — Test individual functions, pure logic, edge cases.
+   No external dependencies. Fast. Run with: `{unit_command}`
+
+2. **Integration tests** — Test API endpoints, database operations,
+   service interactions. May use Docker harness. Run with: `{integration_command}`
+
+3. **Scenario tests** — Test complete user workflows end-to-end.
+   Requires Docker harness. Run with: `{scenario_command}`
+
+Rules:
+- Every new source file needs a corresponding test file
+- Use semantic function names: TestUserCanResetPassword, NOT test_1
+- NOT Gherkin — plain functions with descriptive names
+- See TEST_GUIDE.md for requirement-to-test mapping
+- Docker harness: `docker compose -f docker-compose.test.yml up -d`
+```
+
+## Notion Documentation (Mandatory)
+
+Forge creates and maintains structured Notion documentation for every project it builds. This isn't optional — documentation is a first-class output alongside code.
+
+### Init: Create Page Structure
+
+During scaffolding, Forge creates 8 mandatory child pages under a user-provided Notion parent page:
+
+| Page | Purpose |
+|---|---|
+| **Architecture** | System overview, component diagram, service boundaries, data models |
+| **Data Flow** | How data moves through the system — request lifecycle, event flows, state transitions |
+| **API Reference** | Every endpoint: method, path, params, request/response schemas, error codes, auth |
+| **Component Index** | Every module/component: purpose, dependencies, public interface, file location |
+| **ADRs** | Architectural Decision Records — "we chose X over Y because Z" |
+| **Deployment** | Deployment targets, environments, config, runbook, infrastructure diagram |
+| **Dev Workflow** | How to set up locally, run tests, create branches, deploy |
+| **Phase Reports** | Parent page for per-phase reports (auto-generated) |
+
+All page IDs stored in `forge-state.json` for targeted updates.
+
+### Per-Phase: Update Docs + Generate Phase Report
+
+After every phase, Forge runs a documentation agent that:
+
+1. **Updates Architecture** if new components/services were added
+2. **Updates API Reference** if new endpoints were created
+3. **Updates Component Index** with new modules
+4. **Creates ADR** for any significant design decision made during the phase
+5. **Creates Phase Report** as a child of Phase Reports:
+   - Phase goals and requirements addressed
+   - Test results (unit/integration/scenario counts)
+   - Architecture changes (from `git diff` of non-test files)
+   - New tests added (from `git diff` of test files)
+   - Issues encountered and how they were resolved
+   - Budget used
+
+### Milestone Completion: Final Docs
+
+When all phases complete, Forge publishes comprehensive final documentation:
+- Architecture page updated with complete system overview
+- API Reference finalized with all endpoints
+- Deployment page updated with production deployment instructions
+- Milestone completion report aggregating all phase reports
+
+## Requirements Format (Structured, Numbered, Verifiable)
+
+Every requirement gathered during `forge init` follows this format:
+
+```markdown
+## R1: User Registration
+
+**Description:** Users can create an account with email and password.
+
+**Acceptance Criteria:**
+- Email must be valid format and unique
+- Password must be ≥8 characters with 1 uppercase, 1 number
+- Confirmation email sent after registration
+- Account inactive until email confirmed
+
+**Edge Cases:**
+- Duplicate email → 409 Conflict with message
+- Invalid email format → 400 with validation error
+- Password too weak → 400 with specific requirement not met
+- Email service down → account created, retry email via queue
+
+**Performance:** Registration completes in <500ms (excluding email send)
+
+**Security:** Password hashed with bcrypt (cost factor 12), email tokens expire in 24h
+
+**Observability:** Log registration attempts (success/failure), metric: registrations_total
+```
+
+Each requirement has:
+- **ID** (R1, R2, ...) for traceability
+- **Acceptance criteria** that map directly to tests
+- **Edge cases** that become integration/scenario tests
+- **Performance targets** that become benchmark tests
+- **Security notes** that become security tests
+- **Observability** requirements that get verified
+
+## Requirement Traceability Matrix (TEST_GUIDE.md)
+
+Forge creates and maintains a `TEST_GUIDE.md` that maps every requirement to its tests:
+
+```markdown
+# Test Guide — Requirement Traceability
+
+| Req ID | Requirement | Unit Tests | Integration Tests | Scenario Tests |
+|--------|-------------|------------|-------------------|----------------|
+| R1 | User Registration | TestHashPassword, TestValidateEmail | TestCreateUser_Success, TestCreateUser_DuplicateEmail | TestUserRegistrationFlow |
+| R2 | User Login | TestVerifyPassword, TestGenerateJWT | TestLogin_Success, TestLogin_WrongPassword | TestUserLoginAndAccessDashboard |
+| R3 | Password Reset | TestGenerateResetToken | TestResetPassword_ValidToken, TestResetPassword_ExpiredToken | TestUserForgotPasswordFlow |
+```
+
+This matrix is:
+- **Created** during scaffolding (requirements known, tests TBD)
+- **Updated** after every phase (new tests added)
+- **Verified** by Forge: every requirement must have at least one test at each tier
+- **Used during gap closure**: if R7 has no scenario test, that's a gap to close
+
+## Phase-Level Context Gathering
+
+Before planning each phase, Forge runs a context-gathering step that identifies and resolves gray areas. This mirrors GSD's `/gsd:discuss-phase` but is automated:
+
+### Gray Area Detection
+
+For each phase, the agent analyzes the requirements and identifies:
+- UI/UX decisions not specified in requirements
+- Behavior ambiguities (what happens when X and Y both occur?)
+- Integration approach choices (which library? which pattern?)
+- Data format decisions (JSON vs protobuf? REST vs GraphQL?)
+
+### Decision Locking
+
+Identified decisions are written to `.planning/phases/phase-N/CONTEXT.md`:
+
+```markdown
+# Phase 3 Context
+
+## Decisions
+- API pagination: cursor-based (not offset), max 100 items per page
+- Date format: ISO 8601 UTC everywhere, convert to local in frontend only
+- Error responses: RFC 7807 Problem Details format
+- Auth: JWT in httpOnly cookie, not Authorization header
+
+## Deferred Ideas
+- Rate limiting per user (captured for Phase 7)
+- API versioning (captured for future milestone)
+```
+
+These decisions are injected into execution prompts so agents can't diverge.
+
+### Deferred Ideas Capture
+
+When the agent encounters ideas that are outside the current phase scope:
+- Captured in CONTEXT.md under "Deferred Ideas"
+- Added to ROADMAP.md as potential future phases
+- Never added to current phase scope (scope guardrail)
+
+## Plan Verification Gates
+
+Before executing any phase, Forge validates the plan:
+
+### Plan Quality Checks
+
+After GSD creates a PLAN.md, Forge runs a plan-checker that validates:
+
+1. **Requirement coverage** — Every requirement assigned to this phase has corresponding plan tasks
+2. **Test task presence** — Plan includes explicit test-writing tasks (not just "implement feature")
+3. **Execution order** — Task dependencies make sense (can't test before implementing)
+4. **Success criteria** — Each task has clear, verifiable success criteria
+5. **No scope creep** — Plan tasks map to phase requirements, nothing extra
+
+If the plan fails checks, Forge loops back to planning with specific feedback ("Plan missing test tasks for R5, R7. Add them."). Only after verification passes does execution proceed.
+
+### Test Task Injection
+
+If the plan doesn't include explicit test tasks, Forge edits the plan to add them:
+- "Write unit tests for {component}" for each new component
+- "Write integration tests for {endpoint}" for each new endpoint
+- "Write scenario test for {workflow}" for each new user workflow
+
+This is deterministic code editing the plan file, not a prompt hoping the agent remembers.
+
+## Gap Closure Strategy (Root Cause Analysis)
+
+When tests fail or verification gaps are found, Forge doesn't just retry — it diagnoses first:
+
+### Diagnostic Step
+
+Before retrying, Forge runs a diagnostic agent that:
+1. Reads the failing test output (full error, not just pass/fail)
+2. Reads the relevant source code
+3. Identifies the root cause category:
+   - **Wrong approach** — library/pattern doesn't work → try alternative
+   - **Missing dependency** — needs something not yet built → identify what
+   - **Integration mismatch** — mock doesn't match real API → fix mock or implementation
+   - **Requirement ambiguity** — requirement is unclear → flag for human
+   - **Environment issue** — Docker, path, permissions → fix environment
+
+### Targeted Fix Plan
+
+Based on diagnosis, Forge creates a specific fix plan (not "try again"):
+```json
+{
+  "diagnosis": "TestStripeWebhook_PaymentSuccess fails because webhook signature validation uses wrong secret",
+  "root_cause": "integration_mismatch",
+  "fix_plan": "Update src/payments/webhook.ts to read STRIPE_WEBHOOK_SECRET from env, add to .env.example",
+  "files_to_change": ["src/payments/webhook.ts", ".env.example"],
+  "retest": "npm run test:integration -- --grep 'Stripe'"
+}
+```
+
+Then executes ONLY the fix plan, not the entire phase again.
+
+## Atomic Commits with Requirement Linking
+
+Every commit Forge's agents create links back to a requirement:
+
+```
+feat(R1): implement user registration endpoint
+
+- POST /api/auth/register with email/password validation
+- bcrypt hashing, email confirmation token generation
+- 409 for duplicate email, 400 for validation errors
+
+Requirement: R1 (User Registration)
+Phase: 3
+```
+
+Forge verifies commit messages include requirement IDs. This creates full traceability:
+- `git log --grep="R5"` → every commit related to requirement R5
+- Phase reports aggregate commits per requirement
+- Spec compliance can trace from requirement → commits → tests
+
+## External Service Mock Strategy
+
+When Forge builds phases that need external services (before credentials are available):
+
+### Mock Pattern
+
+Every mocked service follows this pattern:
+1. **Interface defined** — `src/services/stripe.ts` exports an interface
+2. **Mock implementation** — `src/services/stripe.mock.ts` implements the interface with in-memory stubs
+3. **Real implementation** — `src/services/stripe.real.ts` implements the interface with real API calls
+4. **Factory** — `src/services/stripe.factory.ts` returns mock or real based on env var
+5. **Tagged** — All mock files have `// FORGE:MOCK — swap for real in Wave 2` comment
+
+### Mock Registry
+
+Forge maintains a precise list of all mocked files in state:
+```json
+{
+  "mocked_services": {
+    "stripe": {
+      "interface": "src/services/stripe.ts",
+      "mock": "src/services/stripe.mock.ts",
+      "real": "src/services/stripe.real.ts",
+      "factory": "src/services/stripe.factory.ts",
+      "test_fixtures": ["test/fixtures/stripe-webhook.json"],
+      "env_vars": ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]
+    }
+  }
+}
+```
+
+During Wave 2, Forge uses this registry to systematically swap every mock.
+
+### Mock Verification
+
+Forge verifies mocks match the real API shape:
+- Mock and real implementations must satisfy the same TypeScript interface
+- Mock responses must match real API response schemas (if available)
+- `// FORGE:MOCK` tags are searchable — nothing gets missed during swap
+
+## Observability Enforcement
+
+Forge enforces observability requirements on every project:
+
+### What Gets Verified
+
+| Check | How |
+|---|---|
+| Health endpoint exists | `curl /health` returns 200 with status |
+| Structured logging | Log output is JSON (parse a sample) |
+| Error logging | Error paths include log statements (grep source) |
+| Metrics endpoint | `/metrics` returns Prometheus format (if configured) |
+| Request logging | HTTP middleware logs method, path, status, duration |
+
+### Per-Requirement Observability
+
+Each requirement's observability notes (from REQUIREMENTS.md) are verified:
+- "Log registration attempts" → grep for log statement in registration handler
+- "metric: registrations_total" → check metrics endpoint includes this counter
+
+## Deployment Strategy
+
+During requirements gathering, Forge asks about deployment and stores the strategy:
+
+```json
+{
+  "deployment": {
+    "target": "vercel",
+    "environments": ["development", "staging", "production"],
+    "env_vars": {
+      "shared": ["DATABASE_URL", "REDIS_URL"],
+      "production_only": ["STRIPE_SECRET_KEY", "SENTRY_DSN"]
+    },
+    "infrastructure": {
+      "database": "postgres (Supabase)",
+      "cache": "redis (Upstash)",
+      "storage": "s3 (AWS)"
+    }
+  }
+}
+```
+
+Forge verifies:
+- Dockerfile builds and runs
+- docker-compose.yml matches docker-compose.test.yml services
+- Environment variables are consistent across all configs
+- `.env.example` lists all required vars
+- Deployment config (vercel.json, fly.toml, etc.) exists and is valid
+
+## Phase State Machine (File-Based Checkpoints)
+
+In addition to `forge-state.json`, each phase creates file-based checkpoints that survive crashes:
+
+```
+.planning/phases/phase-3/
+├── CONTEXT.md      # ✓ Gray areas resolved, decisions locked
+├── PLAN.md         # ✓ Plan verified by plan-checker
+├── execution/      # ✓ In progress or complete
+├── VERIFICATION.md # ✓ GSD verify-work output
+├── PHASE_REPORT.md # ✓ Test results, changes, decisions
+└── GAPS.md         # Gap closure diagnosis and fix plans (if any)
+```
+
+If Forge crashes mid-phase, it reads these files to determine exactly where to resume:
+- CONTEXT.md exists → skip context gathering
+- PLAN.md exists → skip planning
+- execution/ has work → resume execution
+- VERIFICATION.md exists → skip to gap closure or next phase
+
 ## Config File (`forge.config.json`)
 
 ```json
@@ -763,6 +1223,7 @@ Forge doesn't just write application code. It builds everything a production sys
   "max_retries": 3,
   "max_turns_per_step": 200,
   "testing": {
+    "stack": "node",
     "unit_command": "npm test -- --json",
     "integration_command": "npm run test:integration -- --json",
     "scenario_command": "npm run test:e2e",
@@ -771,7 +1232,26 @@ Forge doesn't just write application code. It builds everything a production sys
   "verification": {
     "typecheck": true,
     "lint": true,
-    "docker_smoke": true
+    "docker_smoke": true,
+    "test_coverage_check": true,
+    "observability_check": true
+  },
+  "notion": {
+    "parent_page_id": "...",
+    "doc_pages": {
+      "architecture": "page-id",
+      "data_flow": "page-id",
+      "api_reference": "page-id",
+      "component_index": "page-id",
+      "adrs": "page-id",
+      "deployment": "page-id",
+      "dev_workflow": "page-id",
+      "phase_reports": "page-id"
+    }
+  },
+  "deployment": {
+    "target": "vercel",
+    "environments": ["development", "staging", "production"]
   },
   "notifications": {
     "on_human_needed": "stdout",
@@ -789,14 +1269,18 @@ Forge doesn't just write application code. It builds everything a production sys
    - Core functionality, user workflows, edge cases
    - Security, auth, data model
    - External services needed (identifies potential human gates early)
-   - Performance, deployment, observability
+   - Performance targets, deployment preferences, observability needs
    - Acceptance criteria for every feature
-2. Writes `REQUIREMENTS.md` with structured, numbered requirements
-3. Runs GSD new-project via `query()` (research, roadmap creation)
-4. Detects stack, configures testing commands
-5. Identifies external services → creates service manifest in state
-6. Writes `forge.config.json` and `forge-state.json`
-7. Displays summary — user can now walk away
+   - Every requirement gets an ID (R1, R2, ...) and structured format
+2. Writes `REQUIREMENTS.md` with structured, numbered requirements (see Requirements Format section)
+3. Asks for Notion parent page ID → creates 8 mandatory doc pages
+4. Runs GSD new-project via `query()` (research, roadmap creation)
+5. Detects stack, configures testing commands
+6. Scaffolds test infrastructure: directories, docker-compose.test.yml, TEST_GUIDE.md
+7. Injects testing methodology into project CLAUDE.md
+8. Identifies external services → creates service manifest in state
+9. Writes `forge.config.json` and `forge-state.json`
+10. Displays summary — user can now walk away
 
 ### `forge run`
 
@@ -807,25 +1291,35 @@ The main command. Implements the full wave model:
 2. If project not initialized: run GSD new-project
 3. If not scaffolded: scaffold CI/CD, Docker, observability
 4. For each phase:
-   - Phases needing external services → build with mocks
-   - Phases hitting unexpected blockers → retry (3x) → skip → continue
-   - Phases with no blockers → build normally
-5. Result: codebase ~95% complete
+   a. **Context gathering** — identify gray areas, lock decisions in CONTEXT.md, capture deferred ideas
+   b. **Plan** — GSD plan-phase, then verify plan (requirement coverage, test tasks, success criteria)
+   c. **Inject test tasks** — if plan missing test tasks, edit plan to add them
+   d. **Execute** — GSD execute-phase (with mock instructions for external services)
+   e. **Verify** — programmatic verification (tests, typecheck, lint, test coverage, observability)
+   f. **Gap closure** — if verification fails: diagnose root cause → create fix plan → execute fix → retest
+   g. **Update docs** — update Notion pages (Architecture, API Ref, Components, ADRs), create Phase Report
+   h. **Update TEST_GUIDE.md** — add new test mappings for requirements addressed
+   i. On unexpected blockers → retry (3x different approaches) → skip and flag → continue
+5. Result: codebase ~95% complete, docs current, all automatable tests passing
 
 **Human Checkpoint** — ONE interruption (if needed):
-6. Present batched report: services needed + skipped items
+6. Present batched report: services needed + skipped items + deferred ideas
 7. Wait for `forge resume`
 
 **Wave 2** — Real integration:
-8. Swap mocks for real service implementations
+8. Swap mocks for real implementations using mock registry (systematic, nothing missed)
 9. Run integration tests against real APIs
 10. Address skipped items with user guidance
+11. Update Notion docs with real service details
 
 **Wave 3+** — Spec compliance loop:
-11. Verify every requirement in REQUIREMENTS.md
-12. Fix gaps, retest
-13. Loop until converging (each round fewer gaps)
-14. Exit when all requirements verified OR not converging (report to user)
+12. Verify every requirement in REQUIREMENTS.md against TEST_GUIDE.md traceability matrix
+13. Check: every requirement has unit + integration + scenario test
+14. Run full test pyramid (unit → Docker harness up → integration → scenario → harness down)
+15. Fix gaps with root cause diagnosis → targeted fix plan
+16. Loop until converging (each round fewer gaps)
+17. Exit when all requirements verified OR not converging (report to user)
+18. Publish final Notion documentation (Architecture, API, Deployment finalized)
 
 ### `forge phase N`
 
@@ -876,29 +1370,45 @@ StrongDM's dark factory (Attractor) is the only known production Level 4 autonom
 ## Success Criteria
 
 ### v1
-- [ ] `forge init` gathers deep requirements interactively, produces numbered REQUIREMENTS.md
+- [ ] `forge init` gathers deep requirements with structured format (R1, R2, ... with acceptance criteria)
+- [ ] `forge init` creates 8 Notion documentation pages + TEST_GUIDE.md + CLAUDE.md testing injection
 - [ ] `forge run` implements full wave model (build → checkpoint → integrate → verify)
 - [ ] Each step gets a fresh context via separate `query()` call
 - [ ] GSD skills called directly (no AX layer)
+- [ ] Phase-level context gathering: gray area detection, decision locking in CONTEXT.md, deferred ideas
+- [ ] Plan verification gates: requirement coverage, test task presence, execution order, success criteria
+- [ ] Test task injection: plans without test tasks get them added automatically
+- [ ] Testing pyramid enforced: unit → integration → scenario, verified per phase
+- [ ] TEST_GUIDE.md traceability matrix: every requirement mapped to tests at all tiers
+- [ ] Test coverage check: new code must have corresponding test files
 - [ ] Programmatic verification after every step (not agent self-report)
-- [ ] Failure cascade: retry (3x with different approaches) → skip and flag → stop only if fatal
-- [ ] External services built with mocks in Wave 1, swapped in Wave 2
-- [ ] ONE human checkpoint with batched report (services + skipped items)
-- [ ] Spec compliance loop: verify every requirement, fix gaps, converge
-- [ ] Exit condition is "all requirements verified" not "all phases ran"
-- [ ] State persists across interruptions and waves
+- [ ] Gap closure with root cause diagnosis → targeted fix plan → execute fix (not "retry")
+- [ ] External services built with mocks (interface + mock + real + factory pattern), swapped in Wave 2
+- [ ] Mock registry: precise tracking of all mocked files for systematic swap
+- [ ] ONE human checkpoint with batched report (services + skipped items + deferred ideas)
+- [ ] Spec compliance loop: verify every requirement, check traceability, fix gaps, converge
+- [ ] Exit condition is "all requirements verified with passing tests" not "all phases ran"
+- [ ] Atomic commits with requirement IDs (feat(R1): ...) for full traceability
+- [ ] Notion docs updated per phase: Architecture, API Ref, Components, ADRs, Phase Reports
+- [ ] Phase Reports: goals, test results, architecture changes, git diffs, budget
+- [ ] Observability enforcement: health endpoint, structured logging, error logging verified
+- [ ] Deployment strategy verified: Dockerfile builds, env vars consistent, deploy config valid
+- [ ] File-based phase checkpoints (CONTEXT.md, PLAN.md, VERIFICATION.md, PHASE_REPORT.md)
+- [ ] State persists across interruptions, waves, and crashes
 - [ ] Cost tracked per step, phase, wave, and total
-- [ ] CI/CD, Docker, observability scaffolded automatically
 - [ ] `forge resume` picks up exactly where it left off with new credentials/guidance
+- [ ] `forge status` shows human-readable progress: wave, phase table, spec compliance, budget
 
 ### v2
 - [ ] Agent Teams for intra-phase parallelism
 - [ ] Holdout evaluation (separate AI reviews against requirements, never sees implementation)
 - [ ] Webhook/Slack notifications for human checkpoint
-- [ ] Live dashboard showing wave progress, costs, spec compliance
+- [ ] Live dashboard showing wave progress, costs, spec compliance, Notion doc freshness
 - [ ] Multiple concurrent projects
 - [ ] Deployment automation (push to production after spec compliance)
 - [ ] Learning across projects (what approaches work for what problem types)
+- [ ] Cost-per-requirement analysis
+- [ ] Post-phase retrospective and pattern analysis
 
 ## File Structure
 
@@ -909,18 +1419,27 @@ forge/
 ├── src/
 │   ├── index.ts              # CLI entry point (commander.js)
 │   ├── pipeline.ts           # Wave-based pipeline controller
-│   ├── requirements.ts       # Interactive requirements gatherer
-│   ├── phase-runner.ts       # Runs a single phase with mock support + cascade
+│   ├── requirements.ts       # Interactive requirements gatherer (structured R1, R2 format)
+│   ├── phase-runner.ts       # Runs a single phase (context → plan → verify plan → execute → verify → docs)
 │   ├── step-runner.ts        # Runs a single query() step with verification
-│   ├── spec-compliance.ts    # Spec compliance loop (verify → fix → converge)
+│   ├── context-gatherer.ts   # Gray area detection, decision locking, deferred ideas
+│   ├── plan-checker.ts       # Plan verification gates (coverage, test tasks, order, criteria)
+│   ├── spec-compliance.ts    # Spec compliance loop (verify → diagnose → fix → converge)
+│   ├── gap-closure.ts        # Root cause diagnosis → targeted fix plan → execute
 │   ├── service-detector.ts   # Detects external service needs from phase descriptions
+│   ├── mock-manager.ts       # Mock registry, interface/mock/real/factory pattern
+│   ├── notion.ts             # Notion page creation, updates, phase reports
+│   ├── traceability.ts       # TEST_GUIDE.md management, requirement-to-test mapping
 │   ├── verifiers/
 │   │   ├── index.ts          # Verifier registry
 │   │   ├── files.ts          # File existence checks
 │   │   ├── tests.ts          # Test runner + JSON output parser
+│   │   ├── test-coverage.ts  # New code has corresponding test files
 │   │   ├── typecheck.ts      # TypeScript/language type checking
 │   │   ├── lint.ts           # Linter checks
-│   │   └── docker.ts         # Docker-based smoke/integration tests
+│   │   ├── docker.ts         # Docker-based smoke/integration tests
+│   │   ├── observability.ts  # Health endpoint, logging, metrics verification
+│   │   └── deployment.ts     # Dockerfile, env vars, deploy config verification
 │   ├── state.ts              # State manager (waves, services, skipped items, convergence)
 │   ├── config.ts             # Config file management
 │   ├── cost.ts               # Budget tracking and enforcement
