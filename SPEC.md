@@ -416,7 +416,7 @@ async function runPipeline(state: ForgeState) {
     } else {
       // Run independent phases concurrently (max 3)
       phaseResults = await Promise.all(
-        pendingPhases.slice(0, state.config.parallelism.maxConcurrentPhases).map(runOne)
+        pendingPhases.slice(0, config.parallelism.maxConcurrentPhases).map(runOne)
       );
     }
 
@@ -462,12 +462,49 @@ async function runPipeline(state: ForgeState) {
   // ─── WAVE 3+: Spec compliance loop ───
 
   await runSpecComplianceLoop(state);
+
+  // ─── UAT: Test like a real user (final gate) ───
+
+  await runUserAcceptanceTesting(state);
+  if (state.uatResults.status !== "passed") {
+    // Gap closure → retry UAT
+    for (let attempt = 0; attempt < config.maxRetries; attempt++) {
+      const gaps = state.uatResults.workflows_failed;
+      await runStep("uat-gap-closure", {
+        prompt: buildUATGapClosurePrompt(state.uatResults),
+        verify: async () => true, // verification happens in next UAT run
+      });
+      await runUserAcceptanceTesting(state);
+      if (state.uatResults.status === "passed") break;
+    }
+  }
+
+  // ─── FINISH: Milestone audit + completion ───
+
+  await runStep("audit-milestone", {
+    prompt: "Run /gsd:audit-milestone",
+    verify: async () => true,
+  });
+
+  await runStep("complete-milestone", {
+    prompt: "Run /gsd:complete-milestone",
+    verify: async () => {
+      const tags = execSync("git tag").toString();
+      return tags.length > 0; // milestone creates a git tag
+    },
+  });
+
+  // Publish final Notion documentation
+  await updateFinalNotionDocs(state);
+
+  state.status = "completed";
+  saveState(state);
 }
 
 async function runSpecComplianceLoop(state: ForgeState) {
   const requirements = parseRequirements("REQUIREMENTS.md");
   let round = 0;
-  const maxRounds = state.config.maxComplianceRounds;
+  const maxRounds = config.maxComplianceRounds;
 
   // Seed gap history with total requirements (round 0 = baseline).
   // This is intentionally generous — gives the first round room to improve
@@ -598,7 +635,7 @@ async function runPhase(
     const testResults = await runTests(state.config);
 
     if (testResults.failures > 0) {
-      for (let attempt = 0; attempt < state.config.maxRetries; attempt++) {
+      for (let attempt = 0; attempt < config.maxRetries; attempt++) {
         // Diagnose root cause first, then fix
         const diagnosis = await diagnoseFailure(testResults, phase);
         const stepResult = await runStep("gap-closure", {
@@ -627,13 +664,18 @@ async function runPhase(
   }
 
   // ─── 7. Verify work (generates VERIFICATION.md) ───
-  await runStep("verify-work", {
-    prompt: `Run /gsd:verify-work ${phase.number}`,
-    verify: async () => fs.existsSync(`${phaseDir}/VERIFICATION.md`)
-  });
+  // Steps 7-9 only run if execution wasn't entirely skipped
+  if (executeResult.status !== "skipped") {
+    await runStep("verify-work", {
+      prompt: `Run /gsd:verify-work ${phase.number}`,
+      verify: async () => fs.existsSync(`${phaseDir}/VERIFICATION.md`)
+    });
+  }
 
   // ─── 8. Update TEST_GUIDE.md ───
-  await updateTraceabilityMatrix(phase, state);
+  if (executeResult.status !== "skipped") {
+    await updateTraceabilityMatrix(phase, state);
+  }
 
   // ─── 9. Update Notion docs (background) ───
   // Local files (PHASE_REPORT.md, GAPS.md) are source of truth.
@@ -644,14 +686,15 @@ async function runPhase(
 
   state.phases[phase.number] = {
     status: skipped.length > 0 ? "partial" : "completed",
-    started_at: phaseStartTime,
-    completed_at: new Date().toISOString(),
+    startedAt: phaseStartTime,
+    completedAt: skipped.length > 0 ? undefined : new Date().toISOString(),
     attempts: executeResult.attempts || 1,
-    test_results: await getTestSummary(state.config),
-    budget_used: phaseBudget,
-    mocked_service_names: opts.mockServices.map(s => s.name),
+    testResults: await getTestSummary(config),
+    budgetUsed: phaseBudget,
+    mockedServiceNames: opts.mockServices.length > 0 ? opts.mockServices.map(s => s.name) : undefined,
   };
-  // Note: saveState() called by pipeline controller after concurrent phases complete
+  // Note: saveState() serializes camelCase → snake_case for JSON.
+  // Called by pipeline controller after concurrent phases complete
   // to avoid race conditions when multiple phases run in parallel.
 
   return { skipped, docsPromise, reportPromise };
@@ -711,6 +754,23 @@ const verifiers: Record<string, Verifier> = {
       }
     }
   },
+  testCoverage: {
+    name: "test-coverage",
+    check: async () => {
+      // See test-coverage verifier section below for full implementation
+      const newFiles = getFilesAddedInPhase(phase);
+      const untestedFiles = findUntestedSourceFiles(newFiles);
+      return { passed: untestedFiles.length === 0, details: `Untested: ${untestedFiles}` };
+    }
+  },
+  observability: {
+    name: "observability",
+    check: async () => {
+      // See observability enforcement section below for details
+      const health = await fetch("http://localhost:3000/health").then(r => r.ok);
+      return { passed: health, details: health ? "Health endpoint OK" : "Health endpoint missing" };
+    }
+  },
   docker: {
     name: "docker-smoke",
     check: async () => {
@@ -731,7 +791,9 @@ const verifiers: Record<string, Verifier> = {
 
 Persists orchestrator state to `forge-state.json`. Tracks waves, skipped items, service needs, convergence history, and UAT results.
 
-**Naming convention:** JSON state uses `snake_case`. TypeScript runtime maps to `camelCase` via a serialization layer (`state.servicesNeeded` ↔ `services_needed` in JSON).
+**Naming convention:** JSON uses `snake_case`. TypeScript runtime maps to `camelCase` via a serialization layer (`state.servicesNeeded` ↔ `services_needed` in JSON).
+
+**Config access:** Throughout code examples, `config` refers to the loaded `forge.config.json` (via `loadConfig()`), passed as a separate parameter or module-level variable — it is NOT part of the state object. `state` is `forge-state.json`. When earlier code showed `state.config.X`, it means `config.X` — config and state are separate files loaded independently.
 
 ```json
 {
@@ -803,7 +865,7 @@ Persists orchestrator state to `forge-state.json`. Tracks waves, skipped items, 
     "total_requirements": 16,
     "verified": 14,
     "gap_history": [16, 5, 2, 0],
-    "rounds_completed": 4
+    "rounds_completed": 3
   },
   "remaining_gaps": [],
   "uat_results": {
@@ -892,7 +954,7 @@ The core execution primitive. Every `runStep()` call wraps a single `query()` in
 ```typescript
 async function runStep(name: string, opts: StepOptions): Promise<StepResult> {
   // Budget hard-stop: check BEFORE starting
-  if (state.totalBudgetUsed >= state.config.maxBudgetTotal) {
+  if (state.totalBudgetUsed >= config.maxBudgetTotal) {
     throw new BudgetExceededError(state.totalBudgetUsed);
   }
 
@@ -901,9 +963,9 @@ async function runStep(name: string, opts: StepOptions): Promise<StepResult> {
       prompt: opts.prompt,
       options: {
         permissionMode: "bypassPermissions",
-        maxBudgetUsd: state.config.maxBudgetPerStep,
-        maxTurns: state.config.maxTurnsPerStep,
-        model: state.config.model,
+        maxBudgetUsd: config.maxBudgetPerStep,
+        maxTurns: config.maxTurnsPerStep,
+        model: config.model,
       }
     })) {
       // Extract structured output, track cost
@@ -1026,11 +1088,12 @@ const executionWaves = topologicalSort(graph);
 
 for (const wave of executionWaves) {
   if (wave.length === 1) {
-    await runPhase(wave[0], state);
+    await runPhase(wave[0], state, { mockServices: detectExternalServices(wave[0]), onBlocker: "retry-then-skip" });
   } else {
-    // Run independent phases concurrently
+    // Run independent phases concurrently (max 3, matching pipeline controller)
+    const batch = wave.slice(0, config.parallelism.maxConcurrentPhases);
     await Promise.all(
-      wave.map(phase => runPhase(phase, state))
+      batch.map(phase => runPhase(phase, state, { mockServices: detectExternalServices(phase), onBlocker: "retry-then-skip" }))
     );
   }
 }
@@ -1482,13 +1545,19 @@ async function runUserAcceptanceTesting(state: ForgeState) {
   const workflows = extractUserWorkflows(state.requirements);
 
   for (const workflow of workflows) {
-    await runStep("uat", {
+    const result = await runStep("uat", {
       prompt: buildUATPrompt(workflow, state),
       verify: async () => {
-        // Agent reports structured results
-        return workflow.verified;
+        // Programmatic verification — NOT agent self-report.
+        // Agent writes structured JSON results to a known file path.
+        // Forge code reads and validates the results independently.
+        const reportPath = `.forge/uat/${workflow.id}.json`;
+        if (!fs.existsSync(reportPath)) return false;
+        const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+        return report.steps_failed.length === 0;
       }
     });
+    workflow.verified = result.verified;
   }
 
   // 3. Update state with UAT results
@@ -1866,10 +1935,11 @@ Continue from human checkpoint (also used for crash recovery — reads file-base
 1. Reads `forge-state.json` + file-based checkpoints (CONTEXT.md, PLAN.md, etc.) to determine resume point
 2. Reads `.env.production` (or provided env file) → populates `state.credentials`
 3. Reads `guidance.md` (if provided) → populates `state.humanGuidance` keyed by requirement ID
-3. Enters Wave 2 (swap mocks using `mock_registry`, apply guidance to skipped items)
-4. Wave 3+ (spec compliance loop)
-5. UAT (final gate — test like a real user)
-6. Return to user only when everything passes
+4. Enters Wave 2 (swap mocks using `mock_registry`, apply guidance to skipped items)
+5. Updates Notion docs with real service details
+6. Wave 3+ (spec compliance loop)
+7. UAT (final gate — test like a real user)
+8. Return to user only when everything passes
 
 ## StrongDM Learnings Applied
 
