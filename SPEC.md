@@ -35,22 +35,92 @@ Forge starts by having a deep conversation with the user. This is the only inter
 
 This produces a comprehensive requirements document. The quality of this phase determines everything — if requirements are thorough, autonomous execution succeeds. If requirements are vague, it fails.
 
-### Mode 2: Autonomous Execution
+### Mode 2: Autonomous Execution (Wave Model)
 
-Once requirements are locked, Forge enters fully autonomous mode. No human interaction unless a genuine human gate is hit. The pipeline:
+Once requirements are locked, Forge enters fully autonomous mode. Execution happens in **waves** — Forge maximizes autonomous progress before ever involving a human.
 
 ```
-Requirements Doc
+Wave 1: Build Everything Possible
   → GSD new-project (research, roadmap)
+  → System scaffolding (CI/CD, Docker, observability)
   → For each phase:
-      → GSD plan-phase (research → plan → verify plan)
-      → GSD execute-phase (implement with atomic commits)
-      → Programmatic verification (tests, linting, type checks)
-      → Docker-based integration/scenario testing
-      → Gap closure if verification fails
-  → System scaffolding (CI/CD, observability, deployment)
-  → Final verification (full test suite, Docker smoke test)
-  → Done
+      → If phase needs external service (Stripe, AWS, etc.):
+          → Build the full integration with mocks/stubs
+          → Flag service as "needs real credentials"
+      → If phase has no blockers:
+          → Build normally (plan → execute → verify)
+      → If phase hits unexpected blocker:
+          → 1. Retry with different approach
+          → 2. Skip and flag, continue other phases
+          → 3. Stop only if nothing else can proceed
+  → Result: codebase is ~95% complete, all automatable work done
+
+Human Checkpoint (ONE interruption, batched)
+  → "Here's everything I need from you:"
+  →   □ Stripe: need secret key + webhook secret (signup: stripe.com)
+  →   □ AWS S3: need access key, secret, bucket name
+  →   □ 2 skipped items that need your guidance:
+  →       - WebSocket auth: tried ws + socket.io, both failed on X
+  →       - PDF export: puppeteer won't install, jsPDF can't match layout
+  → User provides credentials, guidance on skipped items
+  → `forge resume --env .env.production`
+
+Wave 2: Real Integration + Fixes
+  → Swap mocks for real service implementations
+  → Run integration tests against real APIs
+  → Fix issues (real APIs ≠ mocks — auth flows, rate limits, etc.)
+  → Address skipped items with user's guidance
+
+Wave 3+: Spec Compliance Loop
+  → For each requirement in REQUIREMENTS.md:
+      → Has passing test?
+      → Programmatic check passes?
+  → If gaps found: fix → retest → check again
+  → Each loop should have fewer issues (convergence)
+  → If not converging after N rounds: stop, report what's left
+  → EXIT CONDITION: every requirement has a passing verification
+
+  Not "all phases ran" — "all requirements verified."
+```
+
+### Failure Cascade (For Unexpected Blockers)
+
+When Forge hits something it didn't anticipate — a library doesn't work, an API changed, a dependency conflict — it follows this cascade:
+
+1. **Retry with different approach** — Agent tried library X, didn't work → retry with "don't use X, find an alternative." Up to 3 attempts with different strategies.
+2. **Skip and flag** — Can't solve it after retries → mark the item as blocked, record what was tried and why it failed, continue building everything else that doesn't depend on it.
+3. **Stop and report** — Only if the blocker is so fundamental that nothing else can proceed (e.g., the core framework won't compile).
+
+This means Forge always maximizes progress. When it does involve a human (at the checkpoint), the report includes both service credentials needed AND any skipped items with full context:
+
+```json
+{
+  "human_checkpoint": {
+    "services_needed": [
+      {
+        "service": "stripe",
+        "why": "Payment processing in Phase 5",
+        "signup_url": "https://stripe.com",
+        "credentials_needed": ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"],
+        "mocked_in": ["src/payments/", "test/payments/"]
+      }
+    ],
+    "skipped_items": [
+      {
+        "requirement": "R7: WebSocket real-time updates",
+        "phase": 4,
+        "attempts": [
+          { "approach": "ws library", "error": "auth handshake timeout" },
+          { "approach": "socket.io", "error": "CORS policy blocks ws upgrade" }
+        ],
+        "code_so_far": "src/ws/ (socket.io wired up, failing at test/ws.test.ts:34)",
+        "suggestion": "May need custom CORS config or different transport"
+      }
+    ],
+    "completed": "14/16 requirements verified",
+    "resume_command": "forge resume --env .env.production"
+  }
+}
 ```
 
 ## Architecture
@@ -246,10 +316,12 @@ const requirements = await gatherRequirements({
 
 ### 3. Pipeline Controller
 
-The main loop. Pure code — no prompt-based orchestration.
+The main loop. Implements the wave model — build everything possible, batch human needs, integrate, verify until spec compliance.
 
 ```typescript
 async function runPipeline(state: ForgeState) {
+  // ─── WAVE 1: Build everything possible ───
+
   // Step 1: Project setup via GSD
   if (!state.projectInitialized) {
     await runStep("gsd-new-project", {
@@ -273,67 +345,186 @@ async function runPipeline(state: ForgeState) {
     });
   }
 
-  // Step 3: Execute each phase
+  // Step 3: Execute each phase (mock external services, skip-and-flag on blockers)
   const phases = parseRoadmap(".planning/ROADMAP.md");
   for (const phase of phases) {
     if (state.phases[phase.number]?.status === "completed") continue;
 
-    await runPhase(phase, state);
+    const externalServices = detectExternalServices(phase);
+    const result = await runPhase(phase, state, {
+      mockServices: externalServices,  // Build with mocks, don't stop
+      onBlocker: "retry-then-skip",    // Cascade: retry → skip → continue
+    });
+
+    if (result.skipped.length > 0) {
+      state.skippedItems.push(...result.skipped);
+    }
+    if (externalServices.length > 0) {
+      state.servicesNeeded.push(...externalServices);
+    }
   }
 
-  // Step 4: Final verification
-  await runFinalVerification(state);
-}
-```
+  // ─── HUMAN CHECKPOINT (if needed) ───
 
-### 4. Phase Runner
+  if (state.servicesNeeded.length > 0 || state.skippedItems.length > 0) {
+    await pauseForHuman(state);
+    // User runs: forge resume --env .env.production
+    // Forge reads provided credentials + guidance
+  }
 
-Runs a single phase through the full cycle: plan → execute → verify → gap close.
+  // ─── WAVE 2: Real integration + fixes ───
 
-```typescript
-async function runPhase(phase: Phase, state: ForgeState) {
-  // Plan
-  await runStep("plan", {
-    prompt: `Run /gsd:plan-phase ${phase.number}. ${phase.context}`,
-    verify: async () => {
-      return fs.existsSync(`.planning/phases/phase-${phase.number}/PLAN.md`);
-    }
-  });
+  if (state.servicesNeeded.length > 0) {
+    await runStep("integrate-real-services", {
+      prompt: buildIntegrationPrompt(state.servicesNeeded, state.credentials),
+      verify: async () => {
+        const results = await runIntegrationTests(state.config);
+        return results.failures === 0;
+      }
+    });
+  }
 
-  // Execute
-  await runStep("execute", {
-    prompt: `Run /gsd:execute-phase ${phase.number}`,
-    verify: async () => {
-      // Check git log for commits
-      const log = execSync(`git log --oneline -20`).toString();
-      return log.includes(`phase-${phase.number}`);
-    }
-  });
-
-  // Test
-  const testResults = await runTests(state.config);
-
-  // Gap closure if tests fail
-  if (testResults.failures > 0) {
-    for (let attempt = 0; attempt < state.config.maxRetries; attempt++) {
-      await runStep("gap-closure", {
-        prompt: buildGapClosurePrompt(testResults, phase),
+  if (state.skippedItems.length > 0) {
+    for (const item of state.skippedItems) {
+      await runStep(`fix-skipped-${item.requirement}`, {
+        prompt: buildSkippedItemPrompt(item, state.humanGuidance),
         verify: async () => {
-          const retry = await runTests(state.config);
-          return retry.failures === 0;
+          return await verifyRequirement(item.requirement, state);
         }
       });
     }
   }
 
-  // Verify
-  await runStep("verify", {
-    prompt: `Run /gsd:verify-work ${phase.number}`,
-    verify: async () => true // GSD verify is advisory
+  // ─── WAVE 3+: Spec compliance loop ───
+
+  await runSpecComplianceLoop(state);
+}
+
+async function runSpecComplianceLoop(state: ForgeState) {
+  const requirements = parseRequirements("REQUIREMENTS.md");
+  let round = 0;
+  const maxRounds = 5;
+
+  while (round < maxRounds) {
+    round++;
+    const gaps: RequirementGap[] = [];
+
+    for (const req of requirements) {
+      const result = await verifyRequirement(req, state);
+      if (!result.passed) {
+        gaps.push({ requirement: req, ...result });
+      }
+    }
+
+    if (gaps.length === 0) {
+      // ALL REQUIREMENTS VERIFIED — we're done
+      state.status = "completed";
+      saveState(state);
+      return;
+    }
+
+    // Check convergence — are we making progress?
+    const prevGapCount = state.gapHistory[round - 1] || Infinity;
+    if (gaps.length >= prevGapCount) {
+      // Not converging — stop and report
+      state.status = "stuck";
+      state.remainingGaps = gaps;
+      saveState(state);
+      await pauseForHuman(state);
+      return;
+    }
+
+    state.gapHistory[round] = gaps.length;
+
+    // Fix gaps
+    for (const gap of gaps) {
+      await runStep(`gap-closure-r${round}`, {
+        prompt: buildGapClosurePrompt(gap),
+        verify: async () => {
+          const retry = await verifyRequirement(gap.requirement, state);
+          return retry.passed;
+        }
+      });
+    }
+  }
+}
+```
+
+### 4. Phase Runner
+
+Runs a single phase. Handles external service mocking and the retry→skip→stop cascade for unexpected blockers.
+
+```typescript
+async function runPhase(
+  phase: Phase,
+  state: ForgeState,
+  opts: { mockServices: Service[]; onBlocker: "retry-then-skip" }
+): Promise<PhaseResult> {
+  const skipped: SkippedItem[] = [];
+
+  // Plan
+  await runStep("plan", {
+    prompt: buildPlanPrompt(phase, opts.mockServices),
+    verify: async () => {
+      return fs.existsSync(`.planning/phases/phase-${phase.number}/PLAN.md`);
+    }
   });
 
-  state.phases[phase.number] = { status: "completed", ...testResults };
+  // Execute (with mock instructions for external services)
+  const executeResult = await runStepWithCascade("execute", {
+    prompt: buildExecutePrompt(phase, opts.mockServices),
+    verify: async () => {
+      const log = execSync(`git log --oneline -20`).toString();
+      return log.includes(`phase-${phase.number}`);
+    },
+    // The cascade: retry with different approach → skip → continue
+    onFailure: async (error, attempt) => {
+      if (attempt < 3) {
+        // Retry with different approach
+        return {
+          action: "retry",
+          newPrompt: buildRetryPrompt(phase, error, attempt)
+        };
+      } else {
+        // Skip and flag
+        skipped.push({
+          requirement: phase.requirements,
+          phase: phase.number,
+          attempts: error.history,
+          codeSoFar: await getPartialWork(phase),
+        });
+        return { action: "skip" };
+      }
+    }
+  });
+
+  // Test (only if execution succeeded)
+  if (executeResult.status !== "skipped") {
+    const testResults = await runTests(state.config);
+
+    if (testResults.failures > 0) {
+      // Gap closure within the phase
+      for (let attempt = 0; attempt < state.config.maxRetries; attempt++) {
+        await runStep("gap-closure", {
+          prompt: buildPhaseGapPrompt(testResults, phase),
+          verify: async () => {
+            const retry = await runTests(state.config);
+            return retry.failures === 0;
+          }
+        });
+        const retest = await runTests(state.config);
+        if (retest.failures === 0) break;
+      }
+    }
+  }
+
+  state.phases[phase.number] = {
+    status: skipped.length > 0 ? "partial" : "completed",
+    skipped,
+  };
   saveState(state);
+
+  return { skipped };
 }
 ```
 
@@ -408,7 +599,7 @@ const verifiers: Verifier[] = [
 
 ### 6. State Manager
 
-Persists orchestrator state to `forge-state.json`:
+Persists orchestrator state to `forge-state.json`. Tracks waves, skipped items, service needs, and convergence history:
 
 ```json
 {
@@ -416,6 +607,8 @@ Persists orchestrator state to `forge-state.json`:
   "started_at": "2026-03-04T...",
   "model": "claude-opus-4-6",
   "requirements_doc": "REQUIREMENTS.md",
+  "status": "wave_2",
+  "current_wave": 2,
   "project_initialized": true,
   "scaffolded": true,
   "phases": {
@@ -425,58 +618,125 @@ Persists orchestrator state to `forge-state.json`:
       "completed_at": "...",
       "attempts": 1,
       "test_results": { "passed": 12, "failed": 0, "total": 12 },
-      "verifications": {
-        "files-exist": true,
-        "tests-pass": true,
-        "typecheck": true,
-        "lint": true,
-        "docker-smoke": true
-      },
       "budget_used": 4.23
     },
-    "2": {
-      "status": "in_progress",
+    "3": {
+      "status": "partial",
       "started_at": "...",
+      "attempts": 1,
+      "mocked_services": ["stripe"],
+      "budget_used": 6.10
+    },
+    "4": {
+      "status": "completed",
+      "started_at": "...",
+      "completed_at": "...",
       "attempts": 2,
-      "last_error": "docker-smoke: exit code 1, container failed health check"
+      "budget_used": 8.44
     }
   },
-  "total_budget_used": 4.23,
+  "services_needed": [
+    {
+      "service": "stripe",
+      "why": "Payment processing in Phase 3",
+      "signup_url": "https://stripe.com",
+      "credentials_needed": ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"],
+      "mocked_in": ["src/payments/", "test/payments/"]
+    }
+  ],
+  "skipped_items": [
+    {
+      "requirement": "R7: WebSocket real-time updates",
+      "phase": 4,
+      "attempts": [
+        { "approach": "ws library", "error": "auth handshake timeout" },
+        { "approach": "socket.io", "error": "CORS policy blocks ws upgrade" }
+      ],
+      "code_so_far": "src/ws/"
+    }
+  ],
+  "spec_compliance": {
+    "total_requirements": 16,
+    "verified": 14,
+    "gap_history": [16, 5, 2, 0],
+    "rounds_completed": 4
+  },
+  "total_budget_used": 18.77,
   "max_budget": 200.00
 }
 ```
 
-### 7. Retry Logic
+### 7. Failure Handling
 
+Forge uses a three-tier cascade for ALL failures — expected or unexpected:
+
+**Tier 1: Retry with different approach** (up to 3 attempts)
 ```
-Step fails verification
-  → Attempt 1: re-run with error context + failing test output
-  → Attempt 2: re-run with simplified scope (focus on failing tests only)
-  → Attempt 3: stop, log failure details, notify user
+Attempt 1: re-run with error context + failing output
+Attempt 2: re-run with explicit "don't use X, try alternative"
+Attempt 3: re-run with simplified scope
 ```
 
-Max retries configurable. Default: 3 per step.
+**Tier 2: Skip and flag**
+- Mark the item as blocked with full context (what was tried, why it failed, code so far)
+- Continue building everything else that doesn't depend on it
+- Include in the human checkpoint report
 
-### 8. Human Gate Handler
+**Tier 3: Stop and report**
+- Only if the blocker prevents ALL other work from proceeding
+- Dump full context: error logs, partial state, what was completed
+- Wait for human guidance via `forge resume`
 
-Some things genuinely need a human:
-- Creating cloud accounts (AWS, Stripe, etc.)
-- Entering API keys
-- Making payments
-- OAuth app registration
+The goal: **always maximize autonomous progress.** Stopping is the last resort, not the first response.
 
-When detected:
-1. Pause the pipeline
-2. Log exactly what's needed to stdout and `forge-state.json`
-3. Wait for user to run `forge resume` after completing the action
-4. Optional: webhook/Slack notification
+### 8. Human Checkpoint (Batched)
+
+Forge collects ALL human needs during Wave 1 and presents them in ONE interruption:
+
+**What gets batched:**
+- External service credentials (Stripe, AWS, SendGrid, etc.)
+- Skipped items needing human guidance
+- Design decisions the agent couldn't resolve
+
+**What the checkpoint looks like:**
+```
+═══════════════════════════════════════════════
+  FORGE — Human Checkpoint
+═══════════════════════════════════════════════
+
+  Wave 1 complete: 14/16 requirements built
+
+  Services needed (please sign up + provide keys):
+  ┌─────────┬─────────────────────────────────┐
+  │ Stripe  │ stripe.com → secret key +       │
+  │         │ webhook secret                   │
+  │ AWS S3  │ aws.amazon.com → access key,    │
+  │         │ secret, bucket name              │
+  └─────────┴─────────────────────────────────┘
+
+  Skipped items (need your guidance):
+  ┌──────────────────────────────────────────────┐
+  │ R7: WebSocket auth — tried ws + socket.io,   │
+  │ both fail on auth handshake. Code at src/ws/. │
+  │ Need: custom CORS config? Different transport?│
+  └──────────────────────────────────────────────┘
+
+  Add credentials to .env.production, then run:
+  $ forge resume --env .env.production
+
+═══════════════════════════════════════════════
+```
+
+After the user provides credentials and guidance, `forge resume` picks up exactly where it left off — swaps mocks for real implementations, addresses skipped items, then enters the spec compliance loop.
 
 ### 9. Cost Controller
 
 - Per-step budget: `maxBudgetUsd` on each `query()` call
 - Total project budget: tracked in state, abort if exceeded
 - Per-phase budget: sum of steps within a phase
+- Per-wave budget: sum of phases within a wave
 - Log cost per step for full visibility
+- Budget is a hard stop — never exceeded, even mid-step
 
 ## What Forge Builds (Full Production System)
 
@@ -525,43 +785,69 @@ Forge doesn't just write application code. It builds everything a production sys
 
 ### `forge init`
 
-1. **Interactive requirements gathering** — deep conversation with user about what to build
-2. Writes `REQUIREMENTS.md` with structured requirements
+1. **Interactive requirements gathering** — deep, thorough conversation with user
+   - Core functionality, user workflows, edge cases
+   - Security, auth, data model
+   - External services needed (identifies potential human gates early)
+   - Performance, deployment, observability
+   - Acceptance criteria for every feature
+2. Writes `REQUIREMENTS.md` with structured, numbered requirements
 3. Runs GSD new-project via `query()` (research, roadmap creation)
 4. Detects stack, configures testing commands
-5. Writes `forge.config.json` and `forge-state.json`
-6. Displays summary — user can now walk away
+5. Identifies external services → creates service manifest in state
+6. Writes `forge.config.json` and `forge-state.json`
+7. Displays summary — user can now walk away
 
 ### `forge run`
 
-1. Reads state — find first incomplete step
+The main command. Implements the full wave model:
+
+**Wave 1** — Build everything possible:
+1. Reads state — find current wave and position
 2. If project not initialized: run GSD new-project
 3. If not scaffolded: scaffold CI/CD, Docker, observability
-4. For each remaining phase:
-   a. Plan via `query()` with GSD plan-phase
-   b. Execute via `query()` with GSD execute-phase
-   c. Verify programmatically (tests, typecheck, lint, Docker)
-   d. On verification failure: gap close up to max retries
-   e. On human-needed: pause, wait for `forge resume`
-5. Final verification: full test suite + Docker smoke test
-6. Exit with summary
+4. For each phase:
+   - Phases needing external services → build with mocks
+   - Phases hitting unexpected blockers → retry (3x) → skip → continue
+   - Phases with no blockers → build normally
+5. Result: codebase ~95% complete
+
+**Human Checkpoint** — ONE interruption (if needed):
+6. Present batched report: services needed + skipped items
+7. Wait for `forge resume`
+
+**Wave 2** — Real integration:
+8. Swap mocks for real service implementations
+9. Run integration tests against real APIs
+10. Address skipped items with user guidance
+
+**Wave 3+** — Spec compliance loop:
+11. Verify every requirement in REQUIREMENTS.md
+12. Fix gaps, retest
+13. Loop until converging (each round fewer gaps)
+14. Exit when all requirements verified OR not converging (report to user)
 
 ### `forge phase N`
 
-Run a single phase through the full cycle. Same as one iteration of the phase loop in `forge run`.
+Run a single phase through the full cycle. Follows same retry→skip→stop cascade. Does NOT trigger the wave model — just runs that one phase.
 
 ### `forge status`
 
 Read `forge-state.json`, display:
-- Phase progress table
-- Test results per phase
-- Verification status per phase
-- Budget used (per phase and total)
-- Current step if in progress
+- Current wave and position
+- Phase progress table (completed / partial / skipped / pending)
+- Services needed (with mock status)
+- Skipped items (with attempt history)
+- Spec compliance (X/Y requirements verified)
+- Budget used (per phase, per wave, total)
 
 ### `forge resume`
 
-Continue from where `forge run` paused (human gate or failure).
+Continue from human checkpoint:
+1. Reads `.env.production` (or provided env file) for new credentials
+2. Reads any guidance for skipped items from user input
+3. Enters Wave 2 (real integration + fixes)
+4. Then Wave 3+ (spec compliance loop)
 
 ## StrongDM Learnings Applied
 
@@ -589,27 +875,30 @@ StrongDM's dark factory (Attractor) is the only known production Level 4 autonom
 
 ## Success Criteria
 
-### v1 (MVP)
-- [ ] `forge init` gathers deep requirements interactively
-- [ ] `forge run` executes all phases without returning to user
+### v1
+- [ ] `forge init` gathers deep requirements interactively, produces numbered REQUIREMENTS.md
+- [ ] `forge run` implements full wave model (build → checkpoint → integrate → verify)
 - [ ] Each step gets a fresh context via separate `query()` call
 - [ ] GSD skills called directly (no AX layer)
 - [ ] Programmatic verification after every step (not agent self-report)
-- [ ] Failed steps retry up to 3 times with error context
-- [ ] Human gates pause and resume cleanly
-- [ ] State persists across interruptions
-- [ ] Cost tracked per step and total
-- [ ] CI/CD scaffolded automatically
-- [ ] Docker-based test environment set up
+- [ ] Failure cascade: retry (3x with different approaches) → skip and flag → stop only if fatal
+- [ ] External services built with mocks in Wave 1, swapped in Wave 2
+- [ ] ONE human checkpoint with batched report (services + skipped items)
+- [ ] Spec compliance loop: verify every requirement, fix gaps, converge
+- [ ] Exit condition is "all requirements verified" not "all phases ran"
+- [ ] State persists across interruptions and waves
+- [ ] Cost tracked per step, phase, wave, and total
+- [ ] CI/CD, Docker, observability scaffolded automatically
+- [ ] `forge resume` picks up exactly where it left off with new credentials/guidance
 
 ### v2
 - [ ] Agent Teams for intra-phase parallelism
-- [ ] Docker-based scenario testing (spin up full system, run E2E)
-- [ ] Webhook/Slack notifications for human gates
-- [ ] Dashboard showing phase progress, costs, test results
-- [ ] Holdout evaluation (separate AI reviews against requirements)
+- [ ] Holdout evaluation (separate AI reviews against requirements, never sees implementation)
+- [ ] Webhook/Slack notifications for human checkpoint
+- [ ] Live dashboard showing wave progress, costs, spec compliance
 - [ ] Multiple concurrent projects
-- [ ] Deployment automation
+- [ ] Deployment automation (push to production after spec compliance)
+- [ ] Learning across projects (what approaches work for what problem types)
 
 ## File Structure
 
@@ -619,10 +908,12 @@ forge/
 ├── tsconfig.json
 ├── src/
 │   ├── index.ts              # CLI entry point (commander.js)
-│   ├── pipeline.ts           # Main pipeline controller
+│   ├── pipeline.ts           # Wave-based pipeline controller
 │   ├── requirements.ts       # Interactive requirements gatherer
-│   ├── phase-runner.ts       # Runs a single phase (plan → execute → verify → gap close)
+│   ├── phase-runner.ts       # Runs a single phase with mock support + cascade
 │   ├── step-runner.ts        # Runs a single query() step with verification
+│   ├── spec-compliance.ts    # Spec compliance loop (verify → fix → converge)
+│   ├── service-detector.ts   # Detects external service needs from phase descriptions
 │   ├── verifiers/
 │   │   ├── index.ts          # Verifier registry
 │   │   ├── files.ts          # File existence checks
@@ -630,10 +921,10 @@ forge/
 │   │   ├── typecheck.ts      # TypeScript/language type checking
 │   │   ├── lint.ts           # Linter checks
 │   │   └── docker.ts         # Docker-based smoke/integration tests
-│   ├── state.ts              # State manager (read/write forge-state.json)
+│   ├── state.ts              # State manager (waves, services, skipped items, convergence)
 │   ├── config.ts             # Config file management
 │   ├── cost.ts               # Budget tracking and enforcement
-│   ├── human-gate.ts         # Handles human-needed pauses
+│   ├── checkpoint.ts         # Batched human checkpoint (services + skipped items)
 │   └── prompts.ts            # Prompt builders for each step type
 ├── forge.config.json         # Project config (template)
 └── README.md
