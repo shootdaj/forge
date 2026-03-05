@@ -124,10 +124,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Notion Documentation
 
-- [ ] **DOC-01**: 8 mandatory Notion pages created under user-provided parent page during init
-- [ ] **DOC-02**: Pages updated per phase: Architecture, Data Flow, API Ref, Components, Dev Workflow, ADRs, Phase Reports
-- [ ] **DOC-03**: Phase reports include: goals, test results, architecture changes, issues, budget
-- [ ] **DOC-04**: Final milestone docs published on completion
+- [x] **DOC-01**: 8 mandatory Notion pages created under user-provided parent page during init
+- [x] **DOC-02**: Pages updated per phase: Architecture, Data Flow, API Ref, Components, Dev Workflow, ADRs, Phase Reports
+- [x] **DOC-03**: Phase reports include: goals, test results, architecture changes, issues, budget
+- [x] **DOC-04**: Final milestone docs published on completion
 
 ### User Acceptance Testing
 
@@ -140,10 +140,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Requirements Gathering
 
-- [ ] **REQ-01**: forge init gathers requirements across 8 categories (Core, Data, Security, Integrations, Quality, Infrastructure, UX, Business)
-- [ ] **REQ-02**: Each requirement gets structured format: ID, description, acceptance criteria, edge cases, performance, security, observability
-- [ ] **REQ-03**: Requirements produce REQUIREMENTS.md with numbered R1, R2, ... format
-- [ ] **REQ-04**: Compliance flags (SOC 2, HIPAA, GDPR, PCI DSS, WCAG) drive specific build requirements
+- [x] **REQ-01**: forge init gathers requirements across 8 categories (Core, Data, Security, Integrations, Quality, Infrastructure, UX, Business)
+- [x] **REQ-02**: Each requirement gets structured format: ID, description, acceptance criteria, edge cases, performance, security, observability
+- [x] **REQ-03**: Requirements produce REQUIREMENTS.md with numbered R1, R2, ... format
+- [x] **REQ-04**: Compliance flags (SOC 2, HIPAA, GDPR, PCI DSS, WCAG) drive specific build requirements
 
 ## v2 Requirements
 
@@ -259,14 +259,14 @@ Requirements for initial release. Each maps to roadmap phases.
 | TEST-03 | Phase 7 | Complete |
 | TEST-04 | Phase 7 | Complete |
 | TEST-05 | Phase 7 | Complete |
-| REQ-01 | Phase 8 | Pending |
-| REQ-02 | Phase 8 | Pending |
-| REQ-03 | Phase 8 | Pending |
-| REQ-04 | Phase 8 | Pending |
-| DOC-01 | Phase 8 | Pending |
-| DOC-02 | Phase 8 | Pending |
-| DOC-03 | Phase 8 | Pending |
-| DOC-04 | Phase 8 | Pending |
+| REQ-01 | Phase 8 | Complete |
+| REQ-02 | Phase 8 | Complete |
+| REQ-03 | Phase 8 | Complete |
+| REQ-04 | Phase 8 | Complete |
+| DOC-01 | Phase 8 | Complete |
+| DOC-02 | Phase 8 | Complete |
+| DOC-03 | Phase 8 | Complete |
+| DOC-04 | Phase 8 | Complete |
 | UAT-01 | Phase 8 | Pending |
 | UAT-02 | Phase 8 | Pending |
 | UAT-03 | Phase 8 | Pending |
