@@ -366,13 +366,15 @@ The compliance topic is particularly important — a "yes" to SOC 2, HIPAA, GDPR
 The main loop. Implements the wave model — build everything possible, batch human needs, integrate, verify until spec compliance.
 
 ```typescript
-async function runPipeline(state: ForgeState) {
+async function runPipeline(state: ForgeState, config: ForgeConfig) {
+  const requirements = parseRequirements(state.requirementsDoc); // loads from file each time
+
   // ─── WAVE 1: Build everything possible ───
 
   // Step 1: Project setup via GSD
   if (!state.projectInitialized) {
     await runStep("gsd-new-project", {
-      prompt: buildNewProjectPrompt(state.requirements),
+      prompt: buildNewProjectPrompt(requirements),
       verify: async () => {
         return fs.existsSync(".planning/ROADMAP.md")
           && fs.existsSync(".planning/PROJECT.md");
@@ -442,7 +444,7 @@ async function runPipeline(state: ForgeState) {
     await runStep("integrate-real-services", {
       prompt: buildIntegrationPrompt(state.servicesNeeded, state.credentials),
       verify: async () => {
-        const results = await runIntegrationTests(state.config);
+        const results = await runIntegrationTests(config);
         return results.failures === 0;
       }
     });
@@ -463,13 +465,15 @@ async function runPipeline(state: ForgeState) {
 
   await runSpecComplianceLoop(state);
 
+  // If compliance loop couldn't converge, stop — don't continue to UAT
+  if (state.status === "stuck") return;
+
   // ─── UAT: Test like a real user (final gate) ───
 
   await runUserAcceptanceTesting(state);
   if (state.uatResults.status !== "passed") {
     // Gap closure → retry UAT
     for (let attempt = 0; attempt < config.maxRetries; attempt++) {
-      const gaps = state.uatResults.workflows_failed;
       await runStep("uat-gap-closure", {
         prompt: buildUATGapClosurePrompt(state.uatResults),
         verify: async () => true, // verification happens in next UAT run
@@ -477,14 +481,31 @@ async function runPipeline(state: ForgeState) {
       await runUserAcceptanceTesting(state);
       if (state.uatResults.status === "passed") break;
     }
+    if (state.uatResults.status !== "passed") {
+      state.status = "stuck";
+      saveState(state);
+      return; // UAT couldn't pass — stop and report
+    }
   }
 
   // ─── FINISH: Milestone audit + completion ───
 
-  await runStep("audit-milestone", {
-    prompt: "Run /gsd:audit-milestone",
-    verify: async () => true,
+  const auditResult = await runStep("audit-milestone", {
+    prompt: "Run /gsd:audit-milestone. Output gaps as JSON if any found.",
+    verify: async () => fs.existsSync(".planning/AUDIT.md"),
   });
+
+  // If audit finds gaps, create and execute gap phases
+  if (auditResult.gaps && auditResult.gaps.length > 0) {
+    await runStep("plan-milestone-gaps", {
+      prompt: "Run /gsd:plan-milestone-gaps",
+      verify: async () => true,
+    });
+    // Execute gap phases through the same phase runner
+    for (const gapPhase of auditResult.gaps) {
+      await runPhase(gapPhase, state, { mockServices: [], onBlocker: "retry-then-skip" });
+    }
+  }
 
   await runStep("complete-milestone", {
     prompt: "Run /gsd:complete-milestone",
@@ -511,6 +532,8 @@ async function runSpecComplianceLoop(state: ForgeState) {
   // even if it doesn't fix everything. If round 1 has as many gaps as
   // total requirements, convergence fails immediately (correct).
   state.specCompliance.gapHistory[0] = requirements.length;
+
+  let lastGaps: RequirementGap[] = [];
 
   while (round < maxRounds) {
     round++;
@@ -555,7 +578,14 @@ async function runSpecComplianceLoop(state: ForgeState) {
         }
       });
     }
+    lastGaps = gaps;
   }
+
+  // Exhausted maxRounds while still making progress but not done
+  state.status = "stuck";
+  state.remainingGaps = lastGaps;
+  saveState(state);
+  await pauseForHuman(state);
 }
 ```
 
@@ -575,7 +605,7 @@ async function runPhase(
   // ─── 1. Context Gathering (skip if CONTEXT.md exists) ───
   if (!fs.existsSync(`${phaseDir}/CONTEXT.md`)) {
     await runStep("context", {
-      prompt: buildContextPrompt(phase, state.requirements),
+      prompt: buildContextPrompt(phase, requirements),
       // Agent identifies gray areas, makes decisions, captures deferred ideas
       verify: async () => fs.existsSync(`${phaseDir}/CONTEXT.md`)
     });
@@ -590,7 +620,7 @@ async function runPhase(
   }
 
   // ─── 3. Verify Plan (code-based, not agent) ───
-  const planIssues = await verifyPlan(phase, state.requirements);
+  const planIssues = await verifyPlan(phase, requirements);
   if (planIssues.missingTestTasks.length > 0) {
     // Inject test tasks into plan (deterministic code edit)
     await injectTestTasks(`${phaseDir}/PLAN.md`, planIssues.missingTestTasks);
@@ -600,7 +630,7 @@ async function runPhase(
     await runStep("re-plan", {
       prompt: `Plan missing coverage for: ${planIssues.missingRequirements}. Update PLAN.md.`,
       verify: async () => {
-        const recheck = await verifyPlan(phase, state.requirements);
+        const recheck = await verifyPlan(phase, requirements);
         return recheck.missingRequirements.length === 0;
       }
     });
@@ -632,7 +662,7 @@ async function runPhase(
 
   // ─── 5. Test + Gap Closure (only if execution succeeded) ───
   if (executeResult.status !== "skipped") {
-    const testResults = await runTests(state.config);
+    const testResults = await runTests(config);
 
     if (testResults.failures > 0) {
       for (let attempt = 0; attempt < config.maxRetries; attempt++) {
@@ -641,7 +671,7 @@ async function runPhase(
         const stepResult = await runStep("gap-closure", {
           prompt: buildTargetedFixPrompt(diagnosis),
           verify: async () => {
-            const retry = await runTests(state.config);
+            const retry = await runTests(config);
             return retry.failures === 0;
           }
         });
@@ -793,7 +823,7 @@ Persists orchestrator state to `forge-state.json`. Tracks waves, skipped items, 
 
 **Naming convention:** JSON uses `snake_case`. TypeScript runtime maps to `camelCase` via a serialization layer (`state.servicesNeeded` ↔ `services_needed` in JSON).
 
-**Config access:** Throughout code examples, `config` refers to the loaded `forge.config.json` (via `loadConfig()`), passed as a separate parameter or module-level variable — it is NOT part of the state object. `state` is `forge-state.json`. When earlier code showed `state.config.X`, it means `config.X` — config and state are separate files loaded independently.
+**Config access:** Throughout code examples, `config` refers to the loaded `forge.config.json` (via `loadConfig()`), passed as a separate parameter or module-level variable — it is NOT part of the state object. `state` is `forge-state.json`. Both use `snake_case` in JSON; TypeScript maps to `camelCase` via serialization layer.
 
 ```json
 {
@@ -1113,7 +1143,7 @@ const docsPromise = updateNotionDocs(phase, results);
 const reportPromise = generatePhaseReport(phase, results);
 
 // Start next phase immediately
-await runPhase(nextPhase, state);
+await runPhase(nextPhase, state, { mockServices: [], onBlocker: "retry-then-skip" });
 
 // Await docs before final summary
 await Promise.all([docsPromise, reportPromise]);
@@ -1220,16 +1250,16 @@ const testCoverageVerifier: Verifier = {
 const pyramidVerifier: Verifier = {
   name: "test-pyramid",
   check: async () => {
-    const unit = await runAndParse(config.testing.unit_command);
+    const unit = await runAndParse(config.testing.unitCommand);
     if (!unit.passed) return { passed: false, details: `Unit: ${unit.details}` };
 
     // Spin up harness for integration + scenario
-    execSync(`docker compose -f ${config.testing.docker_compose_file} up -d`);
+    execSync(`docker compose -f ${config.testing.dockerComposeFile} up -d`);
     try {
-      const integration = await runAndParse(config.testing.integration_command);
+      const integration = await runAndParse(config.testing.integrationCommand);
       if (!integration.passed) return { passed: false, details: `Integration: ${integration.details}` };
 
-      const scenario = await runAndParse(config.testing.scenario_command);
+      const scenario = await runAndParse(config.testing.scenarioCommand);
       if (!scenario.passed) return { passed: false, details: `Scenario: ${scenario.details}` };
 
       return {
@@ -1237,7 +1267,7 @@ const pyramidVerifier: Verifier = {
         details: `Unit: ${unit.count} ✓ | Integration: ${integration.count} ✓ | Scenario: ${scenario.count} ✓`
       };
     } finally {
-      execSync(`docker compose -f ${config.testing.docker_compose_file} down`);
+      execSync(`docker compose -f ${config.testing.dockerComposeFile} down`);
     }
   }
 };
@@ -1288,7 +1318,7 @@ During scaffolding, Forge creates 8 mandatory child pages under a user-provided 
 | **Dev Workflow** | How to set up locally, run tests, create branches, deploy |
 | **Phase Reports** | Parent page for per-phase reports (auto-generated) |
 
-All page IDs stored in `forge-state.json` for targeted updates.
+All page IDs stored in `forge.config.json` under `notion.doc_pages` for targeted updates.
 
 ### Per-Phase: Update Docs + Generate Phase Report
 
@@ -1542,7 +1572,7 @@ async function runUserAcceptanceTesting(state: ForgeState) {
   await waitForHealthy("http://localhost:3000/health");
 
   // 2. For each user workflow in REQUIREMENTS.md, test it end-to-end
-  const workflows = extractUserWorkflows(state.requirements);
+  const workflows = extractUserWorkflows(requirements);
 
   for (const workflow of workflows) {
     const result = await runStep("uat", {
