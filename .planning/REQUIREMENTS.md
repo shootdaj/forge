@@ -131,12 +131,12 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### User Acceptance Testing
 
-- [ ] **UAT-01**: Full application spun up via Docker after spec compliance passes
-- [ ] **UAT-02**: Every user workflow from requirements tested end-to-end
-- [ ] **UAT-03**: Web apps tested via headless browser, APIs via HTTP, CLIs via shell
-- [ ] **UAT-04**: Safety guardrails: sandbox credentials, local SMTP, test DB — never production
-- [ ] **UAT-05**: UAT failure triggers gap closure -> retry UAT loop
-- [ ] **UAT-06**: UAT is the final gate — only return to user after UAT passes or not converging
+- [x] **UAT-01**: Full application spun up via Docker after spec compliance passes
+- [x] **UAT-02**: Every user workflow from requirements tested end-to-end
+- [x] **UAT-03**: Web apps tested via headless browser, APIs via HTTP, CLIs via shell
+- [x] **UAT-04**: Safety guardrails: sandbox credentials, local SMTP, test DB — never production
+- [x] **UAT-05**: UAT failure triggers gap closure -> retry UAT loop
+- [x] **UAT-06**: UAT is the final gate — only return to user after UAT passes or not converging
 
 ### Requirements Gathering
 
@@ -267,12 +267,12 @@ Requirements for initial release. Each maps to roadmap phases.
 | DOC-02 | Phase 8 | Complete |
 | DOC-03 | Phase 8 | Complete |
 | DOC-04 | Phase 8 | Complete |
-| UAT-01 | Phase 8 | Pending |
-| UAT-02 | Phase 8 | Pending |
-| UAT-03 | Phase 8 | Pending |
-| UAT-04 | Phase 8 | Pending |
-| UAT-05 | Phase 8 | Pending |
-| UAT-06 | Phase 8 | Pending |
+| UAT-01 | Phase 8 | Complete |
+| UAT-02 | Phase 8 | Complete |
+| UAT-03 | Phase 8 | Complete |
+| UAT-04 | Phase 8 | Complete |
+| UAT-05 | Phase 8 | Complete |
+| UAT-06 | Phase 8 | Complete |
 
 **Coverage:**
 - v1 requirements: 90 total

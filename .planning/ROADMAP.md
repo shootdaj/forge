@@ -150,9 +150,9 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 08-01-PLAN.md -- Requirements gatherer (types, parser, compliance detection, prompt builder, formatter) with unit tests
-- [ ] 08-02-PLAN.md -- Notion documentation module (page creation, per-phase updates, ADRs, phase reports, milestone docs) with unit tests
-- [ ] 08-03-PLAN.md -- UAT runner (Docker lifecycle, workflow extraction, app type detection, safety guardrails, gap closure) with unit tests
+- [x] 08-01-PLAN.md -- Requirements gatherer (types, parser, compliance detection, prompt builder, formatter) with unit tests
+- [x] 08-02-PLAN.md -- Notion documentation module (page creation, per-phase updates, ADRs, phase reports, milestone docs) with unit tests
+- [x] 08-03-PLAN.md -- UAT runner (Docker lifecycle, workflow extraction, app type detection, safety guardrails, gap closure) with unit tests
 - [ ] 08-04-PLAN.md -- CLI + pipeline integration and integration/scenario tests (full requirement coverage)
 
 ## Progress
@@ -169,4 +169,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 5. Phase Runner + Plan Verification + Gap Closure | 3/3 | Complete   | 2026-03-05 |
 | 6. Pipeline Controller (Wave Model) | 4/4 | Complete   | 2026-03-05 |
 | 7. CLI + Git + Testing Infrastructure | 3/3 | Complete | 2026-03-05 |
-| 8. Enhancement Layer | 0/4 | Not started | - |
+| 8. Enhancement Layer | 3/4 | In Progress | - |
