@@ -18,6 +18,15 @@ Forge solves this by moving orchestration into **code**:
 - **Code manages** context windows (fresh per step, not accumulated)
 - **Code enforces** budgets, timeouts, and quality gates
 
+## A Note on Code Examples
+
+The TypeScript code blocks throughout this spec are **illustrative pseudocode** — they show the intended structure, data flow, and logic but are NOT production-ready implementations. When GSD builds this project:
+
+- **Treat code blocks as starter scaffolding.** They communicate intent and architecture, not final implementation. GSD agents should improve, refactor, and fill in gaps during actual coding.
+- **Function signatures and types are approximate.** The real implementation should follow proper TypeScript patterns, error handling, and the Agent SDK's actual API surface (verify against SDK docs at build time).
+- **Helper functions are intentionally undefined.** Functions like `buildNewProjectPrompt()`, `parseRoadmap()`, `detectExternalServices()`, etc. describe WHAT should happen, not HOW. GSD agents should implement them properly with full error handling.
+- **The spec describes behavior, not syntax.** If a code block and a prose section disagree, the prose is authoritative. Code blocks exist to make the prose concrete, not to be copy-pasted.
+
 ## Two-Mode Architecture
 
 ### Mode 1: Interactive Requirements Gathering
