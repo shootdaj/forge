@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-03-05T15:09:46.000Z"
+last_updated: "2026-03-05T15:36:34.000Z"
 progress:
   total_phases: 8
   completed_phases: 3
   total_plans: 4
-  completed_plans: 7
+  completed_plans: 8
 ---
 
 # Project State
@@ -18,23 +18,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Every step verified by code, not agent self-report. Forge maximizes autonomous progress.
-**Current focus:** Phase 6 complete. All 4 plans done (types, dependency graph, mock manager, checkpoint, compliance, prompts, pipeline controller FSM, integration/scenario tests). Ready for Phase 7 (CLI).
+**Current focus:** Phase 7 in progress. Plan 01 complete (git utilities + traceability). Ready for Plan 02 (CLI commands).
 
 ## Current Position
 
-Phase: 6 of 8 (Pipeline Controller) -- COMPLETE
-Plan: 4 of 4 in current phase (06-01, 06-02, 06-03, 06-04 complete)
-Status: Phase 6 complete. 119 pipeline tests across all tiers. 411 total tests pass.
-Last activity: 2026-03-05 -- Plan 06-04 complete (13 integration + 9 scenario tests)
+Phase: 7 of 8 (CLI + Git + Testing Infrastructure)
+Plan: 1 of 3 in current phase (07-01 complete)
+Status: Plan 07-01 complete. 44 new tests (20 git + 24 traceability). 14 exported functions.
+Last activity: 2026-03-05 -- Plan 07-01 complete (git workflow utilities + testing infrastructure)
 
-Progress: [████████░░] 85%
+Progress: [████████░░] 88%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 9
+- Total plans completed: 10
 - Average duration: ~5 min
-- Total execution time: 8 sessions
+- Total execution time: 9 sessions
 
 **By Phase:**
 
@@ -44,9 +44,10 @@ Progress: [████████░░] 85%
 | Phase 4: Verifiers | 2 | 67 tests, 24 files | ~5 min |
 | Phase 5: Phase Runner | 3/3 | 66 tests, 20 files | ~5 min |
 | Phase 6: Pipeline Controller | 4/4 | 119 tests, 18 files | ~5 min |
+| Phase 7: CLI + Git + Testing | 1/3 | 44 tests, 4 files | ~4 min |
 
 **Recent Trend:**
-- Last 9 plans: Phase 4 Plan 1 complete, Phase 4 Plan 2 complete, Phase 5 Plan 1 complete, Phase 5 Plan 2 complete, Phase 5 Plan 3 complete, Phase 6 Plan 1 complete, Phase 6 Plan 2 complete, Phase 6 Plan 3 complete, Phase 6 Plan 4 complete
+- Last 10 plans: Phase 4 Plan 1 complete, Phase 4 Plan 2 complete, Phase 5 Plan 1 complete, Phase 5 Plan 2 complete, Phase 5 Plan 3 complete, Phase 6 Plan 1 complete, Phase 6 Plan 2 complete, Phase 6 Plan 3 complete, Phase 6 Plan 4 complete, Phase 7 Plan 1 complete
 - Trend: On track
 
 *Updated after each plan completion*
@@ -98,6 +99,11 @@ Recent decisions affecting current work:
 - [06-04]: Scenario tests treat runPipeline() as black box -- verify PipelineResult + state, not internal wiring
 - [06-04]: Requirement coverage meta-test uses static assertion with explicit requirement-to-test mapping in file header
 - [06-04]: Custom runPhaseFnBehavior must update state.phases via stateManager.update() to simulate real phase runner behavior
+- [07-01]: Git functions use injectable execFn parameter (same signature as execSync) for testability without mocks
+- [07-01]: Traceability functions use injectable FsLike interface backed by Map for in-memory testing
+- [07-01]: commitWithReqId uses two -m flags for subject/body separation instead of heredoc
+- [07-01]: FORGE:TESTING_METHODOLOGY start/end markers for idempotent injection detection
+- [07-01]: Test pyramid enforcement checks both shape (unit >= integration >= scenario) and growth (counts must increase)
 
 ### Pending Todos
 
@@ -112,5 +118,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-05
-Stopped at: Completed 06-04-PLAN.md (pipeline integration + scenario tests). 22 tests, 2 files. Phase 6 complete (4/4 plans). Ready for Phase 7.
+Stopped at: Completed 07-01-PLAN.md (git workflow utilities + testing infrastructure). 44 tests, 4 files. Phase 7 plan 1/3 done. Ready for Plan 02 (CLI commands).
 Resume file: None

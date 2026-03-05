@@ -133,7 +133,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 07-01-PLAN.md -- Git workflow utilities and testing infrastructure modules with unit tests
+- [x] 07-01-PLAN.md -- Git workflow utilities and testing infrastructure modules with unit tests
 - [ ] 07-02-PLAN.md -- CLI entry point with all five commands (init, run, phase, status, resume) and status formatter
 - [ ] 07-03-PLAN.md -- Integration and scenario tests (full requirement coverage)
 
@@ -167,5 +167,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 4. Programmatic Verifiers | 2/2 | Completed | 2026-03-05 |
 | 5. Phase Runner + Plan Verification + Gap Closure | 3/3 | Complete   | 2026-03-05 |
 | 6. Pipeline Controller (Wave Model) | 4/4 | Complete   | 2026-03-05 |
-| 7. CLI + Git + Testing Infrastructure | 0/3 | Not started | - |
+| 7. CLI + Git + Testing Infrastructure | 1/3 | In progress | - |
 | 8. Enhancement Layer | 0/? | Not started | - |

@@ -97,11 +97,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Testing Infrastructure
 
-- [ ] **TEST-01**: Testing methodology injected into project's CLAUDE.md during scaffolding
-- [ ] **TEST-02**: TEST_GUIDE.md created with requirement-to-test mapping (traceability matrix)
-- [ ] **TEST-03**: TEST_GUIDE.md updated after every phase with new test mappings
-- [ ] **TEST-04**: Every requirement must map to at least one test at each tier (unit/integration/scenario)
-- [ ] **TEST-05**: Test pyramid enforced per phase: new code must have tests, test count must increase
+- [x] **TEST-01**: Testing methodology injected into project's CLAUDE.md during scaffolding
+- [x] **TEST-02**: TEST_GUIDE.md created with requirement-to-test mapping (traceability matrix)
+- [x] **TEST-03**: TEST_GUIDE.md updated after every phase with new test mappings
+- [x] **TEST-04**: Every requirement must map to at least one test at each tier (unit/integration/scenario)
+- [x] **TEST-05**: Test pyramid enforced per phase: new code must have tests, test count must increase
 
 ### Gap Closure
 
@@ -118,9 +118,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Git Integration
 
-- [ ] **GIT-01**: Atomic commits include requirement IDs (feat(R1): ...)
-- [ ] **GIT-02**: GitHub Flow: branch protection on main, phase branches, atomic merges
-- [ ] **GIT-03**: Each phase executes on phase-N branch, merged to main after verification
+- [x] **GIT-01**: Atomic commits include requirement IDs (feat(R1): ...)
+- [x] **GIT-02**: GitHub Flow: branch protection on main, phase branches, atomic merges
+- [x] **GIT-03**: Each phase executes on phase-N branch, merged to main after verification
 
 ### Notion Documentation
 
@@ -251,14 +251,14 @@ Requirements for initial release. Each maps to roadmap phases.
 | CLI-04 | Phase 7 | Pending |
 | CLI-05 | Phase 7 | Pending |
 | COST-05 | Phase 7 | Pending |
-| GIT-01 | Phase 7 | Pending |
-| GIT-02 | Phase 7 | Pending |
-| GIT-03 | Phase 7 | Pending |
-| TEST-01 | Phase 7 | Pending |
-| TEST-02 | Phase 7 | Pending |
-| TEST-03 | Phase 7 | Pending |
-| TEST-04 | Phase 7 | Pending |
-| TEST-05 | Phase 7 | Pending |
+| GIT-01 | Phase 7 | Complete |
+| GIT-02 | Phase 7 | Complete |
+| GIT-03 | Phase 7 | Complete |
+| TEST-01 | Phase 7 | Complete |
+| TEST-02 | Phase 7 | Complete |
+| TEST-03 | Phase 7 | Complete |
+| TEST-04 | Phase 7 | Complete |
+| TEST-05 | Phase 7 | Complete |
 | REQ-01 | Phase 8 | Pending |
 | REQ-02 | Phase 8 | Pending |
 | REQ-03 | Phase 8 | Pending |
