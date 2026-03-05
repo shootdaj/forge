@@ -16,6 +16,7 @@ import type {
   UATContext,
 } from "./types.js";
 import type { StepOptions } from "../step-runner/types.js";
+import { runStep as defaultRunStep } from "../step-runner/step-runner.js";
 
 /**
  * Extract user workflows from REQUIREMENTS.md content.
@@ -195,9 +196,7 @@ export async function runUATGapClosure(
   failedWorkflows: WorkflowResult[],
   ctx: UATContext,
 ): Promise<void> {
-  // Import runStep dynamically to avoid circular dependency issues
-  // In production this resolves to the real step-runner; in tests it's mocked via ctx
-  const { runStep } = await import("../step-runner/step-runner.js");
+  const executeStep = ctx.runStepFn ?? defaultRunStep;
 
   for (const wf of failedWorkflows) {
     const stepName = `uat-fix-${wf.workflowId}`;
@@ -230,7 +229,7 @@ Focus on the minimum change needed to make this workflow pass.`;
     };
 
     try {
-      await runStep(stepName, stepOpts, ctx.stepRunnerContext, ctx.costController);
+      await executeStep(stepName, stepOpts, ctx.stepRunnerContext, ctx.costController);
     } catch {
       // Gap closure failures are non-fatal -- log and continue
       // The retry loop in runUAT will detect if the fix worked

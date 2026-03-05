@@ -9,7 +9,7 @@
 
 import type { ForgeConfig } from "../config/schema.js";
 import type { StateManager } from "../state/state-manager.js";
-import type { StepRunnerContext } from "../step-runner/types.js";
+import type { StepRunnerContext, StepOptions, StepResult } from "../step-runner/types.js";
 import type { CostController } from "../step-runner/cost-controller.js";
 
 /**
@@ -105,6 +105,13 @@ export interface UATContext {
   };
   /** Injectable shell exec for testing */
   execFn?: (cmd: string) => string;
+  /** Injectable runStep function for testing (defaults to real runStep) */
+  runStepFn?: (
+    name: string,
+    opts: StepOptions,
+    ctx: StepRunnerContext,
+    costController: CostController,
+  ) => Promise<StepResult>;
 }
 
 /**
