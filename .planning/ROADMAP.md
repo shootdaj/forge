@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Foundation (Config + State)** - Project config loading with validation and crash-safe state persistence
 - [x] **Phase 3: Step Runner + Cost Controller** - Core primitive wrapping query() with budget enforcement, error handling, and failure cascade
 - [x] **Phase 4: Programmatic Verifiers** - Registry of deterministic code checks that run after every step
-- [ ] **Phase 5: Phase Runner + Plan Verification + Gap Closure** - Full phase lifecycle orchestration with checkpoints and resumability
+- [x] **Phase 5: Phase Runner + Plan Verification + Gap Closure** - Full phase lifecycle orchestration with checkpoints and resumability (completed 2026-03-05)
 - [ ] **Phase 6: Pipeline Controller (Wave Model)** - Wave model FSM with dependency graph, mock management, spec compliance, and human checkpoint
 - [ ] **Phase 7: CLI + Git + Testing Infrastructure** - User-facing commands, git workflow, and test traceability
 - [ ] **Phase 8: Enhancement Layer** - Requirements gathering, UAT, Notion docs, and remaining v1 features
@@ -164,7 +164,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 2. Foundation (Config + State) | 2/2 | Completed | 2026-03-05 |
 | 3. Step Runner + Cost Controller | 1/1 | Completed | 2026-03-05 |
 | 4. Programmatic Verifiers | 2/2 | Completed | 2026-03-05 |
-| 5. Phase Runner + Plan Verification + Gap Closure | 2/3 | In progress | - |
+| 5. Phase Runner + Plan Verification + Gap Closure | 3/3 | Complete   | 2026-03-05 |
 | 6. Pipeline Controller (Wave Model) | 0/? | Not started | - |
 | 7. CLI + Git + Testing Infrastructure | 0/? | Not started | - |
 | 8. Enhancement Layer | 0/? | Not started | - |
