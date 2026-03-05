@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: in_progress
-last_updated: "2026-03-05T16:19:56Z"
+status: completed
+last_updated: "2026-03-05T23:37:00Z"
 progress:
   total_phases: 8
-  completed_phases: 4
+  completed_phases: 8
   total_plans: 16
-  completed_plans: 15
+  completed_plans: 16
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Every step verified by code, not agent self-report. Forge maximizes autonomous progress.
-**Current focus:** Phase 8 in progress. Plan 08-03 complete (UAT runner, 62 tests). One plan remaining (08-04 integration/scenario tests).
+**Current focus:** All 8 phases complete. 687 tests across 50 files. All 16 plans executed.
 
 ## Current Position
 
-Phase: 8 of 8 (Enhancement Layer)
-Plan: 3 of 4 in current phase (08-03 complete)
-Status: UAT runner complete. 62 unit tests. Docker lifecycle, app type detection, safety guardrails, gap closure.
-Last activity: 2026-03-05 -- Plan 08-03 complete (UAT runner)
+Phase: 8 of 8 (Enhancement Layer) -- COMPLETE
+Plan: 4 of 4 in current phase (08-04 complete)
+Status: All phases complete. Enhancement layer wired into CLI and pipeline. 687 tests passing.
+Last activity: 2026-03-05 -- Plan 08-04 complete (integration/scenario tests)
 
-Progress: [██████████] 98%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -45,15 +45,16 @@ Progress: [██████████] 98%
 | Phase 5: Phase Runner | 3/3 | 66 tests, 20 files | ~5 min |
 | Phase 6: Pipeline Controller | 4/4 | 119 tests, 18 files | ~5 min |
 | Phase 7: CLI + Git + Testing | 3/3 | 103 tests, 10 files | ~4 min |
-| Phase 8: Enhancement Layer | 3/4 | 146 tests, 14 files | ~5 min |
+| Phase 8: Enhancement Layer | 4/4 | 173 tests, 23 files | ~7 min |
 
 **Recent Trend:**
-- Last 10 plans: Phase 5 Plan 3 complete, Phase 6 Plan 1 complete, Phase 6 Plan 2 complete, Phase 6 Plan 3 complete, Phase 6 Plan 4 complete, Phase 7 Plan 1 complete, Phase 7 Plan 2 complete, Phase 7 Plan 3 complete, Phase 8 Plan 2 complete, Phase 8 Plan 3 complete
-- Trend: On track
+- Last 10 plans: Phase 6 Plan 1 complete, Phase 6 Plan 2 complete, Phase 6 Plan 3 complete, Phase 6 Plan 4 complete, Phase 7 Plan 1 complete, Phase 7 Plan 2 complete, Phase 7 Plan 3 complete, Phase 8 Plan 2 complete, Phase 8 Plan 3 complete, Phase 8 Plan 4 complete
+- Trend: Complete
 
 *Updated after each plan completion*
 | Phase 08 P02 | 3min | 2 tasks | 4 files |
 | Phase 08 P03 | 9min | 2 tasks | 5 files |
+| Phase 08 P04 | 12min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -128,6 +129,9 @@ Recent decisions affecting current work:
 - [08-03]: Workflow chunking at 5 steps per workflow to keep UAT prompts focused
 - [08-03]: Health check polling with 2s interval via injectable execFn (curl-based)
 - [08-03]: Gap closure uses ctx.runStepFn instead of dynamic import for testability
+- [08-04]: PipelineContext extended with execFn and runStepFn for UAT dependency injection through pipeline
+- [08-04]: UAT runner re-throws BudgetExceededError (system error, not workflow failure)
+- [08-04]: Pipeline controller unit tests use mockRunStepFn pattern for UAT testing (replaces executeQueryBehavior)
 
 ### Pending Todos
 
@@ -142,5 +146,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-05
-Stopped at: Completed 08-03-PLAN.md (UAT runner). 62 unit tests, 5 files. Phase 8 in progress (3/4 plans complete). Ready for 08-04 (integration/scenario tests).
+Stopped at: Completed 08-04-PLAN.md (integration/scenario tests). All 16 plans complete. 687 tests across 50 files. All 8 phases done.
 Resume file: None
