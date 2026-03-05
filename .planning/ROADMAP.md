@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: SDK Proof of Concept** - Validate Agent SDK API surface with working query() call, structured output, and cost extraction
 - [x] **Phase 2: Foundation (Config + State)** - Project config loading with validation and crash-safe state persistence
 - [x] **Phase 3: Step Runner + Cost Controller** - Core primitive wrapping query() with budget enforcement, error handling, and failure cascade
-- [ ] **Phase 4: Programmatic Verifiers** - Registry of deterministic code checks that run after every step
+- [x] **Phase 4: Programmatic Verifiers** - Registry of deterministic code checks that run after every step
 - [ ] **Phase 5: Phase Runner + Plan Verification + Gap Closure** - Full phase lifecycle orchestration with checkpoints and resumability
 - [ ] **Phase 6: Pipeline Controller (Wave Model)** - Wave model FSM with dependency graph, mock management, spec compliance, and human checkpoint
 - [ ] **Phase 7: CLI + Git + Testing Infrastructure** - User-facing commands, git workflow, and test traceability
@@ -79,11 +79,11 @@ Plans:
   3. Coverage verifier checks that new source files have corresponding test files; observability verifier checks health endpoint and structured logging
   4. Docker verifier runs docker compose smoke tests; deployment verifier checks Dockerfile builds and env var consistency
   5. All verifiers run in parallel (Promise.all) with Docker running after others pass, and results are aggregated into a single verification report
-**Plans**: 2 plans
+**Plans**: Complete
 
 Plans:
-- [ ] 04-01: Types, utils, config schema update, and all 8 individual verifiers with unit tests
-- [ ] 04-02: Verifier registry (runAll), integration tests, and scenario tests
+- [x] 04-01: Types, utils, config schema update, and all 8 individual verifiers with unit tests
+- [x] 04-02: Verifier registry (runAll), integration tests, and scenario tests
 
 ### Phase 5: Phase Runner + Plan Verification + Gap Closure
 **Goal**: System can execute a complete phase lifecycle (context through docs) with plan verification gates, targeted gap closure, and checkpoint-based resumability
@@ -95,12 +95,12 @@ Plans:
   3. After execution, all programmatic verifiers run; test failures trigger root cause diagnosis that categorizes the failure and produces a targeted fix plan (not blind retry or full re-execution)
   4. Phase creates file-based checkpoints (CONTEXT.md, PLAN.md, VERIFICATION.md, PHASE_REPORT.md, GAPS.md) and resumes from last checkpoint on restart
   5. Gap closure executes only the targeted fix plan, then re-verifies only affected areas
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 05-01: TBD
-- [ ] 05-02: TBD
-- [ ] 05-03: TBD
+- [ ] 05-01: Types, checkpoint module, and plan verification (pure functions)
+- [ ] 05-02: Substep implementations, prompt builders, main phase runner, and unit tests
+- [ ] 05-03: Integration and scenario tests (full requirement coverage)
 
 ### Phase 6: Pipeline Controller (Wave Model)
 **Goal**: System can orchestrate multi-wave autonomous execution -- building with mocks, batching human needs into one checkpoint, swapping to real integrations, and converging on spec compliance
@@ -163,7 +163,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 1. SDK Proof of Concept | 1/1 | Completed | 2026-03-05 |
 | 2. Foundation (Config + State) | 2/2 | Completed | 2026-03-05 |
 | 3. Step Runner + Cost Controller | 1/1 | Completed | 2026-03-05 |
-| 4. Programmatic Verifiers | 0/? | Not started | - |
+| 4. Programmatic Verifiers | 2/2 | Completed | 2026-03-05 |
 | 5. Phase Runner + Plan Verification + Gap Closure | 0/? | Not started | - |
 | 6. Pipeline Controller (Wave Model) | 0/? | Not started | - |
 | 7. CLI + Git + Testing Infrastructure | 0/? | Not started | - |
