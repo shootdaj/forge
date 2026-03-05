@@ -52,7 +52,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Phase Runner
 
-- [ ] **PHA-01**: Phase runner executes full cycle: context → plan → verify plan → execute → test → gap closure → docs
+- [ ] **PHA-01**: Phase runner executes full cycle: context -> plan -> verify plan -> execute -> test -> gap closure -> docs
 - [ ] **PHA-02**: Context gathering detects gray areas, locks decisions in CONTEXT.md, captures deferred ideas
 - [ ] **PHA-03**: Plan creation via GSD plan-phase, produces PLAN.md
 - [ ] **PHA-04**: Plan verification checks requirement coverage, test task presence, execution order, success criteria, no scope creep
@@ -60,7 +60,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **PHA-06**: Missing requirement coverage triggers re-planning with specific feedback
 - [ ] **PHA-07**: Execution runs with mock instructions for external services + failure cascade
 - [ ] **PHA-08**: After execution, all programmatic verifiers run
-- [ ] **PHA-09**: Test failures trigger root cause diagnosis → targeted fix plan → execute fix (not blind retry)
+- [ ] **PHA-09**: Test failures trigger root cause diagnosis -> targeted fix plan -> execute fix (not blind retry)
 - [ ] **PHA-10**: Test coverage gaps trigger gsd:add-tests to generate missing tests
 - [ ] **PHA-11**: Phase creates file-based checkpoints (CONTEXT.md, PLAN.md, VERIFICATION.md, PHASE_REPORT.md, GAPS.md)
 - [ ] **PHA-12**: Phase runner resumes from last checkpoint on restart (skip completed substeps)
@@ -135,7 +135,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **UAT-02**: Every user workflow from requirements tested end-to-end
 - [ ] **UAT-03**: Web apps tested via headless browser, APIs via HTTP, CLIs via shell
 - [ ] **UAT-04**: Safety guardrails: sandbox credentials, local SMTP, test DB — never production
-- [ ] **UAT-05**: UAT failure triggers gap closure → retry UAT loop
+- [ ] **UAT-05**: UAT failure triggers gap closure -> retry UAT loop
 - [ ] **UAT-06**: UAT is the final gate — only return to user after UAT passes or not converging
 
 ### Requirements Gathering
@@ -183,13 +183,102 @@ Requirements for initial release. Each maps to roadmap phases.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (Populated during roadmap creation) | | |
+| SDK-01 | Phase 1 | Pending |
+| SDK-02 | Phase 1 | Pending |
+| SDK-03 | Phase 1 | Pending |
+| SDK-04 | Phase 1 | Pending |
+| SDK-05 | Phase 1 | Pending |
+| CFG-01 | Phase 2 | Pending |
+| CFG-02 | Phase 2 | Pending |
+| CFG-03 | Phase 2 | Pending |
+| STA-01 | Phase 2 | Pending |
+| STA-02 | Phase 2 | Pending |
+| STA-03 | Phase 2 | Pending |
+| STA-04 | Phase 2 | Pending |
+| STA-05 | Phase 2 | Pending |
+| STEP-01 | Phase 3 | Pending |
+| STEP-02 | Phase 3 | Pending |
+| STEP-03 | Phase 3 | Pending |
+| STEP-04 | Phase 3 | Pending |
+| STEP-05 | Phase 3 | Pending |
+| STEP-06 | Phase 3 | Pending |
+| COST-01 | Phase 3 | Pending |
+| COST-02 | Phase 3 | Pending |
+| COST-03 | Phase 3 | Pending |
+| COST-04 | Phase 3 | Pending |
+| VER-01 | Phase 4 | Pending |
+| VER-02 | Phase 4 | Pending |
+| VER-03 | Phase 4 | Pending |
+| VER-04 | Phase 4 | Pending |
+| VER-05 | Phase 4 | Pending |
+| VER-06 | Phase 4 | Pending |
+| VER-07 | Phase 4 | Pending |
+| VER-08 | Phase 4 | Pending |
+| VER-09 | Phase 4 | Pending |
+| PHA-01 | Phase 5 | Pending |
+| PHA-02 | Phase 5 | Pending |
+| PHA-03 | Phase 5 | Pending |
+| PHA-04 | Phase 5 | Pending |
+| PHA-05 | Phase 5 | Pending |
+| PHA-06 | Phase 5 | Pending |
+| PHA-07 | Phase 5 | Pending |
+| PHA-08 | Phase 5 | Pending |
+| PHA-09 | Phase 5 | Pending |
+| PHA-10 | Phase 5 | Pending |
+| PHA-11 | Phase 5 | Pending |
+| PHA-12 | Phase 5 | Pending |
+| GAP-01 | Phase 5 | Pending |
+| GAP-02 | Phase 5 | Pending |
+| GAP-03 | Phase 5 | Pending |
+| PIPE-01 | Phase 6 | Pending |
+| PIPE-02 | Phase 6 | Pending |
+| PIPE-03 | Phase 6 | Pending |
+| PIPE-04 | Phase 6 | Pending |
+| PIPE-05 | Phase 6 | Pending |
+| PIPE-06 | Phase 6 | Pending |
+| PIPE-07 | Phase 6 | Pending |
+| PIPE-08 | Phase 6 | Pending |
+| PIPE-09 | Phase 6 | Pending |
+| PIPE-10 | Phase 6 | Pending |
+| PIPE-11 | Phase 6 | Pending |
+| MOCK-01 | Phase 6 | Pending |
+| MOCK-02 | Phase 6 | Pending |
+| MOCK-03 | Phase 6 | Pending |
+| MOCK-04 | Phase 6 | Pending |
+| CLI-01 | Phase 7 | Pending |
+| CLI-02 | Phase 7 | Pending |
+| CLI-03 | Phase 7 | Pending |
+| CLI-04 | Phase 7 | Pending |
+| CLI-05 | Phase 7 | Pending |
+| COST-05 | Phase 7 | Pending |
+| GIT-01 | Phase 7 | Pending |
+| GIT-02 | Phase 7 | Pending |
+| GIT-03 | Phase 7 | Pending |
+| TEST-01 | Phase 7 | Pending |
+| TEST-02 | Phase 7 | Pending |
+| TEST-03 | Phase 7 | Pending |
+| TEST-04 | Phase 7 | Pending |
+| TEST-05 | Phase 7 | Pending |
+| REQ-01 | Phase 8 | Pending |
+| REQ-02 | Phase 8 | Pending |
+| REQ-03 | Phase 8 | Pending |
+| REQ-04 | Phase 8 | Pending |
+| DOC-01 | Phase 8 | Pending |
+| DOC-02 | Phase 8 | Pending |
+| DOC-03 | Phase 8 | Pending |
+| DOC-04 | Phase 8 | Pending |
+| UAT-01 | Phase 8 | Pending |
+| UAT-02 | Phase 8 | Pending |
+| UAT-03 | Phase 8 | Pending |
+| UAT-04 | Phase 8 | Pending |
+| UAT-05 | Phase 8 | Pending |
+| UAT-06 | Phase 8 | Pending |
 
 **Coverage:**
-- v1 requirements: 69 total
-- Mapped to phases: 0
-- Unmapped: 69
+- v1 requirements: 90 total
+- Mapped to phases: 90
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-05*
-*Last updated: 2026-03-05 after initial definition*
+*Last updated: 2026-03-05 after roadmap creation*
