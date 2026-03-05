@@ -21,6 +21,8 @@ import {
 } from "./human-checkpoint.js";
 import { runSpecComplianceLoop } from "./spec-compliance.js";
 import { buildIntegrationPrompt, buildSkippedItemPrompt } from "./prompts.js";
+import { runUAT } from "../uat/index.js";
+import type { UATContext, UATResult } from "../uat/types.js";
 
 import type {
   PipelineContext,
@@ -456,61 +458,51 @@ async function executeFromWave2(
   try {
     await safeUpdateState(ctx, { status: "uat" });
 
-    let uatPassed = false;
-    const maxUatRetries = ctx.config.maxRetries;
+    // Build UATContext from PipelineContext
+    const uatCtx: UATContext = {
+      config: ctx.config,
+      stateManager: ctx.stateManager,
+      stepRunnerContext: ctx.stepRunnerContext,
+      costController: ctx.costController,
+      fs: ctx.fs as UATContext["fs"],
+      execFn: ctx.execFn,
+      runStepFn: ctx.runStepFn,
+    };
 
-    for (let attempt = 0; attempt <= maxUatRetries; attempt++) {
-      const uatResult = await runStep(
-        "run-uat",
-        {
-          prompt: [
-            "Run user acceptance testing on the built project.",
-            "",
-            "Test all user-facing workflows end-to-end:",
-            "1. Run the project's scenario/e2e tests",
-            "2. Verify all critical user paths work correctly",
-            "3. Check for obvious UI/UX issues",
-            "4. Verify error handling and edge cases",
-          ].join("\n"),
-          verify: async () => true,
-        },
-        ctx.stepRunnerContext,
-        ctx.costController,
-      );
+    const uatResult: UATResult = await runUAT(uatCtx);
 
-      if (uatResult.status === "verified") {
-        uatPassed = true;
-        break;
-      }
+    // Update state with UAT results
+    await safeUpdateState(ctx, {
+      uatResults: {
+        status: uatResult.status === "stuck" ? "failed" : uatResult.status,
+        workflowsTested: uatResult.workflowsTested,
+        workflowsPassed: uatResult.workflowsPassed,
+        workflowsFailed: uatResult.workflowsFailed,
+      },
+    });
 
-      // If UAT failed and we have retries left, attempt gap closure
-      if (attempt < maxUatRetries) {
-        await runStep(
-          `uat-gap-closure-${attempt + 1}`,
-          {
-            prompt: [
-              `UAT attempt ${attempt + 1} failed. Fix the issues and retry.`,
-              "",
-              `Error: ${uatResult.status === "failed" ? uatResult.error : "UAT step did not verify"}`,
-            ].join("\n"),
-            verify: async () => true,
-          },
-          ctx.stepRunnerContext,
-          ctx.costController,
-        );
-      }
-    }
-
-    if (!uatPassed) {
+    if (uatResult.status === "passed") {
+      // Continue to milestone completion
+    } else if (uatResult.status === "failed") {
       await safeUpdateState(ctx, { status: "failed" });
       return {
         status: "failed",
         wave: 4,
-        reason: "UAT failed after all retries",
+        reason: "UAT failed",
         phasesCompletedSoFar: getCompletedPhaseNumbers(
           ctx.stateManager.load(),
         ),
         phasesFailed: [],
+      };
+    } else {
+      // status === "stuck"
+      await safeUpdateState(ctx, { status: "failed" });
+      return {
+        status: "stuck",
+        wave: 4,
+        reason: "UAT not converging",
+        nonConverging: true,
+        gapHistory: [],
       };
     }
   } catch (error) {

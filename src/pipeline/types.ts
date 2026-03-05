@@ -74,6 +74,10 @@ export interface PipelineContext {
     writeFileSync: typeof nodeFs.writeFileSync;
     mkdirSync: typeof nodeFs.mkdirSync;
   };
+  /** Optional shell exec function for testing (used by UAT runner) */
+  execFn?: (cmd: string) => string;
+  /** Optional runStep function for UAT testing (injected into UATContext) */
+  runStepFn?: (...args: any[]) => Promise<any>;
 }
 
 // ---------------------------------------------------------------------------

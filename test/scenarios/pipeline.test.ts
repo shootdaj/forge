@@ -339,6 +339,11 @@ function createScenarioPipelineContext(options: {
   const roadmapContent = options.roadmapContent ?? SMALL_ROADMAP;
   const files = new Map<string, string>();
   files.set(".planning/ROADMAP.md", roadmapContent);
+  // Provide REQUIREMENTS.md for UAT runner (needs at least one requirement with acceptance criteria)
+  files.set(
+    "REQUIREMENTS.md",
+    `# Requirements\n\n## R1: Test Feature\n\n**Category:** Core\n**Description:** A test feature\n**Acceptance Criteria:**\n- Feature works correctly\n`,
+  );
 
   const mockFs = {
     existsSync: (p: string) => files.has(p),
@@ -358,6 +363,33 @@ function createScenarioPipelineContext(options: {
     mkdirSync: () => {},
   };
 
+  // Mock exec function for UAT health checks (returns success immediately)
+  const mockExecFn = (_cmd: string): string => "OK";
+
+  // Mock runStepFn for UAT: writes passing result files to mock fs
+  const mockRunStepFn = async (
+    name: string,
+    opts: any,
+    _ctx: any,
+    _cc: any,
+  ): Promise<any> => {
+    stepCalls.push({ name, prompt: opts.prompt });
+    // Write passing UAT result file for UAT workflow steps
+    if (name.startsWith("uat-UAT-")) {
+      const workflowId = name.replace("uat-", "");
+      const resultPath = `.forge/uat/${workflowId}.json`;
+      files.set(resultPath, JSON.stringify({ passed: true, stepsPassed: 1, stepsFailed: 0, errors: [] }));
+    }
+    return {
+      status: "verified",
+      costUsd: 0.01,
+      costData: { totalCostUsd: 0.01 },
+      result: "done",
+      structuredOutput: null,
+      sessionId: "mock",
+    };
+  };
+
   const ctx: PipelineContext = {
     config,
     stateManager,
@@ -365,6 +397,8 @@ function createScenarioPipelineContext(options: {
     costController,
     runPhaseFn: trackedRunPhaseFn,
     fs: mockFs as any,
+    execFn: mockExecFn,
+    runStepFn: mockRunStepFn as any,
   };
 
   return {
@@ -426,7 +460,7 @@ describe("Pipeline Scenarios: Happy Path", () => {
     expect(verifyCalls.length).toBeGreaterThanOrEqual(12);
 
     const uatCalls = calls.filter(
-      (c) => c.prompt.includes("user acceptance testing"),
+      (c) => c.name.startsWith("uat-") || c.prompt.includes("UAT Test:"),
     );
     expect(uatCalls.length).toBeGreaterThan(0);
 

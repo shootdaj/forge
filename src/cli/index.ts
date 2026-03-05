@@ -9,6 +9,7 @@
  */
 
 import { Command } from "commander";
+import * as fs from "node:fs";
 import { loadConfig, loadConfigOrDefaults } from "../config/index.js";
 import {
   StateManager,
@@ -20,10 +21,13 @@ import { runPhase } from "../phase-runner/index.js";
 import { executeQuery } from "../sdk/index.js";
 import { formatStatus } from "./status.js";
 import { createTestGuide, injectTestingMethodology } from "./traceability.js";
+import { gatherRequirements } from "../requirements/index.js";
+import { createDocPages } from "../docs/index.js";
 import type { PipelineContext, PipelineResult } from "../pipeline/types.js";
 import type { PhaseRunnerContext, PhaseResult } from "../phase-runner/types.js";
 import type { ForgeConfig } from "../config/schema.js";
 import type { StepRunnerContext } from "../step-runner/types.js";
+import type { GatherResult } from "../requirements/types.js";
 
 /**
  * Build a StepRunnerContext from config and state manager.
@@ -160,8 +164,56 @@ export function createCli(): Command {
         const state = createInitialState(process.cwd(), config.model);
         stateManager.save(state);
 
-        // Create TEST_GUIDE.md with empty requirements (Phase 8 populates it)
-        createTestGuide([], "TEST_GUIDE.md");
+        // Gather requirements using Agent SDK
+        let gatherResult: GatherResult | undefined;
+        try {
+          gatherResult = await gatherRequirements(config, {
+            executeQueryFn: executeQuery,
+          });
+          // Write REQUIREMENTS.md to project directory
+          fs.writeFileSync(
+            "REQUIREMENTS.md",
+            gatherResult.formattedDoc,
+            "utf-8",
+          );
+          const categoryCount = new Set(
+            gatherResult.requirements.map((r) => r.category),
+          ).size;
+          console.log(
+            `Requirements gathered: ${gatherResult.requirements.length} requirements across ${categoryCount} categories.`,
+          );
+        } catch (reqErr) {
+          console.warn(
+            `Requirements gathering failed: ${reqErr instanceof Error ? reqErr.message : String(reqErr)}. You can re-run with \`forge init\`.`,
+          );
+        }
+
+        // Create Notion documentation pages if parentPageId is configured
+        if (config.notion.parentPageId) {
+          try {
+            const pageIds = await createDocPages(
+              config.notion.parentPageId,
+              "Forge Project",
+              { executeQueryFn: executeQuery },
+            );
+            console.log("Notion docs created: 8 pages.");
+            // Log page IDs for reference (config update deferred to future enhancement)
+            void pageIds;
+          } catch (notionErr) {
+            console.warn(
+              `Notion setup skipped: ${notionErr instanceof Error ? notionErr.message : String(notionErr)}.`,
+            );
+          }
+        }
+
+        // Create TEST_GUIDE.md with gathered requirements (or empty if gathering failed)
+        const testGuideReqs = gatherResult
+          ? gatherResult.requirements.map((r) => ({
+              id: r.id,
+              description: r.title,
+            }))
+          : [];
+        createTestGuide(testGuideReqs, "TEST_GUIDE.md");
 
         // Inject testing methodology into CLAUDE.md
         injectTestingMethodology("CLAUDE.md", {
@@ -170,9 +222,7 @@ export function createCli(): Command {
           requirementPrefix: "REQ-",
         });
 
-        console.log(
-          "Requirements gathering will be available in Phase 8. Project initialized.",
-        );
+        console.log("Project initialized.");
       } catch (err) {
         console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
         process.exit(1);

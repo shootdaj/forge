@@ -330,6 +330,11 @@ function createTestPipelineContext(options: {
   const roadmapContent = options.roadmapContent ?? COMPLEX_ROADMAP;
   const files = new Map<string, string>();
   files.set(".planning/ROADMAP.md", roadmapContent);
+  // Provide REQUIREMENTS.md for UAT runner (needs at least one requirement with acceptance criteria)
+  files.set(
+    "REQUIREMENTS.md",
+    `# Requirements\n\n## R1: Test Feature\n\n**Category:** Core\n**Description:** A test feature\n**Acceptance Criteria:**\n- Feature works correctly\n`,
+  );
 
   const mockFs = {
     existsSync: (p: string) => files.has(p),
@@ -349,6 +354,33 @@ function createTestPipelineContext(options: {
     mkdirSync: () => {},
   };
 
+  // Mock exec function for UAT health checks (returns success immediately)
+  const mockExecFn = (_cmd: string): string => "OK";
+
+  // Mock runStepFn for UAT: writes passing result files to mock fs
+  const mockRunStepFn = async (
+    name: string,
+    opts: any,
+    _ctx: any,
+    _cc: any,
+  ): Promise<any> => {
+    stepCalls.push({ name, prompt: opts.prompt });
+    // Write passing UAT result file for UAT workflow steps
+    if (name.startsWith("uat-UAT-")) {
+      const workflowId = name.replace("uat-", "");
+      const resultPath = `.forge/uat/${workflowId}.json`;
+      files.set(resultPath, JSON.stringify({ passed: true, stepsPassed: 1, stepsFailed: 0, errors: [] }));
+    }
+    return {
+      status: "verified",
+      costUsd: 0.01,
+      costData: { totalCostUsd: 0.01 },
+      result: "done",
+      structuredOutput: null,
+      sessionId: "mock",
+    };
+  };
+
   const ctx: PipelineContext = {
     config,
     stateManager,
@@ -356,6 +388,8 @@ function createTestPipelineContext(options: {
     costController,
     runPhaseFn: trackedRunPhaseFn,
     fs: mockFs as any,
+    execFn: mockExecFn,
+    runStepFn: mockRunStepFn as any,
   };
 
   return {
@@ -811,13 +845,15 @@ describe("Pipeline Integration: Wave Transitions", () => {
 
     await runPipeline(ctx);
 
-    // Compliance verification calls + UAT + milestone steps should all accumulate
+    // Compliance verification calls + milestone steps accumulate via executeQueryBehavior
+    // UAT steps go through the separate runStepFn mock and are tracked in stepCalls
     const calls = getStepCalls();
     expect(calls.length).toBeGreaterThan(0);
-    // Total cost should be accumulated across all steps
+    // Total cost should be accumulated from executeQueryBehavior calls
     expect(totalStepCost).toBeGreaterThan(0);
-    // Each step contributes 0.05, so total should match number of steps * 0.05
-    expect(totalStepCost).toBeCloseTo(calls.length * 0.05, 5);
+    // Non-UAT calls go through executeQueryBehavior (0.05 each)
+    const nonUatCalls = calls.filter((c) => !c.name.startsWith("uat-"));
+    expect(totalStepCost).toBeCloseTo(nonUatCalls.length * 0.05, 5);
   });
 });
 
