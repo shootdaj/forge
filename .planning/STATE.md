@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-03-05T14:50:14.000Z"
+last_updated: "2026-03-05T15:00:20.000Z"
 progress:
   total_phases: 8
   completed_phases: 2
   total_plans: 4
-  completed_plans: 5
+  completed_plans: 6
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Every step verified by code, not agent self-report. Forge maximizes autonomous progress.
-**Current focus:** Phase 6 in progress. Plans 01-02 complete (types, dependency graph, mock manager, checkpoint, compliance, prompts). 2 plans remaining.
+**Current focus:** Phase 6 in progress. Plans 01-03 complete (types, dependency graph, mock manager, checkpoint, compliance, prompts, pipeline controller FSM). 1 plan remaining.
 
 ## Current Position
 
 Phase: 6 of 8 (Pipeline Controller) -- IN PROGRESS
-Plan: 2 of 4 in current phase (06-01, 06-02 complete)
-Status: Plan 06-02 complete (35 tests, 7 files). Human checkpoint + spec compliance + prompts ready. Plans 03-04 remaining.
-Last activity: 2026-03-05 -- Plan 06-02 complete (human checkpoint, spec compliance loop, prompt builders)
+Plan: 3 of 4 in current phase (06-01, 06-02, 06-03 complete)
+Status: Plan 06-03 complete (30 tests, 3 files). Pipeline controller FSM ready. Plan 04 remaining.
+Last activity: 2026-03-05 -- Plan 06-03 complete (pipeline controller FSM, 30 unit tests)
 
-Progress: [████████░░] 75%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -43,10 +43,10 @@ Progress: [████████░░] 75%
 | Phase 1: SDK POC | 1 | 63 tests | N/A |
 | Phase 4: Verifiers | 2 | 67 tests, 24 files | ~5 min |
 | Phase 5: Phase Runner | 3/3 | 66 tests, 20 files | ~5 min |
-| Phase 6: Pipeline Controller | 2/4 | 67 tests, 13 files | ~5 min |
+| Phase 6: Pipeline Controller | 3/4 | 97 tests, 16 files | ~5 min |
 
 **Recent Trend:**
-- Last 8 plans: Phase 1 complete, Phase 4 Plan 1 complete, Phase 4 Plan 2 complete, Phase 5 Plan 1 complete, Phase 5 Plan 2 complete, Phase 5 Plan 3 complete, Phase 6 Plan 1 complete, Phase 6 Plan 2 complete
+- Last 8 plans: Phase 4 Plan 1 complete, Phase 4 Plan 2 complete, Phase 5 Plan 1 complete, Phase 5 Plan 2 complete, Phase 5 Plan 3 complete, Phase 6 Plan 1 complete, Phase 6 Plan 2 complete, Phase 6 Plan 3 complete
 - Trend: On track
 
 *Updated after each plan completion*
@@ -89,6 +89,11 @@ Recent decisions affecting current work:
 - [06-02]: First compliance round always proceeds (converging vs baseline) -- convergence check only applies from round 2+
 - [06-02]: State update failures in compliance loop caught and silenced -- non-critical for loop progress
 - [06-02]: verifyRequirement uses outputSchema for structured { passed, gapDescription } extraction
+- [06-03]: Pipeline controller is a linear FSM with clear wave boundaries -- no concurrent execution in v1
+- [06-03]: buildPhaseRunnerCtx() converts PipelineContext to PhaseRunnerContext for clean DI boundary
+- [06-03]: All state updates use safeUpdateState() -- failures are non-critical and silently caught
+- [06-03]: Wave 1 phase failures don't halt the wave -- all phases attempted for full service/skip collection
+- [06-03]: UAT retry loop uses config.maxRetries with gap closure between attempts
 
 ### Pending Todos
 
@@ -103,5 +108,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-05
-Stopped at: Completed 06-02-PLAN.md (human checkpoint, spec compliance loop, prompt builders). 35 tests, 7 files. Phase 6 Plan 2/4 done.
+Stopped at: Completed 06-03-PLAN.md (pipeline controller FSM with full wave model). 30 tests, 3 files. Phase 6 Plan 3/4 done.
 Resume file: None

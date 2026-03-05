@@ -67,16 +67,16 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Pipeline Controller (Wave Model)
 
-- [ ] **PIPE-01**: Wave 1 builds everything possible — GSD new-project, scaffolding, all phases with mocks
+- [x] **PIPE-01**: Wave 1 builds everything possible — GSD new-project, scaffolding, all phases with mocks
 - [x] **PIPE-02**: External services detected from phase descriptions and built with mock pattern (interface/mock/real/factory)
 - [x] **PIPE-03**: Mock registry tracks all mocked files precisely for systematic swap
 - [x] **PIPE-04**: Human checkpoint batches ALL needs: services + skipped items + deferred ideas in ONE interruption
-- [ ] **PIPE-05**: Wave 2 swaps mocks for real implementations using mock registry, runs integration tests
-- [ ] **PIPE-06**: Wave 2 addresses skipped items with user guidance
+- [x] **PIPE-05**: Wave 2 swaps mocks for real implementations using mock registry, runs integration tests
+- [x] **PIPE-06**: Wave 2 addresses skipped items with user guidance
 - [x] **PIPE-07**: Wave 3+ runs spec compliance loop: verify every requirement, fix gaps, converge
 - [x] **PIPE-08**: Spec compliance checks convergence — gaps must decrease each round; stops if not converging
-- [ ] **PIPE-09**: After spec compliance, runs UAT as final gate
-- [ ] **PIPE-10**: After UAT passes, runs gsd:audit-milestone and gsd:complete-milestone
+- [x] **PIPE-09**: After spec compliance, runs UAT as final gate
+- [x] **PIPE-10**: After UAT passes, runs gsd:audit-milestone and gsd:complete-milestone
 - [x] **PIPE-11**: Dependency graph built from roadmap for phase ordering (topological sort)
 
 ### CLI
@@ -230,16 +230,16 @@ Requirements for initial release. Each maps to roadmap phases.
 | GAP-01 | Phase 5 | **Delivered** |
 | GAP-02 | Phase 5 | **Delivered** |
 | GAP-03 | Phase 5 | **Delivered** |
-| PIPE-01 | Phase 6 | Pending |
+| PIPE-01 | Phase 6 | Complete |
 | PIPE-02 | Phase 6 | Complete |
 | PIPE-03 | Phase 6 | Complete |
 | PIPE-04 | Phase 6 | Complete |
-| PIPE-05 | Phase 6 | Pending |
-| PIPE-06 | Phase 6 | Pending |
+| PIPE-05 | Phase 6 | Complete |
+| PIPE-06 | Phase 6 | Complete |
 | PIPE-07 | Phase 6 | Complete |
 | PIPE-08 | Phase 6 | Complete |
-| PIPE-09 | Phase 6 | Pending |
-| PIPE-10 | Phase 6 | Pending |
+| PIPE-09 | Phase 6 | Complete |
+| PIPE-10 | Phase 6 | Complete |
 | PIPE-11 | Phase 6 | Complete |
 | MOCK-01 | Phase 6 | Complete |
 | MOCK-02 | Phase 6 | Complete |
