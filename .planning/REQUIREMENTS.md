@@ -1,0 +1,195 @@
+# Requirements: Forge
+
+**Defined:** 2026-03-05
+**Core Value:** Every step verified by code, not agent self-report. Forge maximizes autonomous progress.
+
+## v1 Requirements
+
+Requirements for initial release. Each maps to roadmap phases.
+
+### SDK Integration
+
+- [ ] **SDK-01**: System can call Agent SDK query() with fresh context per step and receive typed messages
+- [ ] **SDK-02**: System configures systemPrompt preset for Claude Code behavior and GSD skill availability
+- [ ] **SDK-03**: System configures settingSources to load CLAUDE.md and project settings
+- [ ] **SDK-04**: System operates in bypassPermissions mode with allowDangerouslySkipPermissions for autonomous execution
+- [ ] **SDK-05**: System extracts structured output from query() responses using outputFormat with JSON schema
+
+### Configuration
+
+- [ ] **CFG-01**: User can define project config in forge.config.json (model, budgets, retries, testing, parallelism, Notion, deployment)
+- [ ] **CFG-02**: System loads and validates config on startup with sensible defaults
+- [ ] **CFG-03**: Config supports all options from spec: model, max_budget_total, max_budget_per_step, max_retries, max_compliance_rounds, max_turns_per_step, testing commands, verification toggles, parallelism settings
+
+### State Management
+
+- [ ] **STA-01**: System persists orchestrator state to forge-state.json with snake_case keys
+- [ ] **STA-02**: TypeScript runtime maps camelCase properties to snake_case JSON via serialization layer
+- [ ] **STA-03**: State tracks: wave, phases, services_needed, mock_registry, skipped_items, credentials, human_guidance, spec_compliance, uat_results, total_budget_used
+- [ ] **STA-04**: State survives process crashes and can be resumed from last checkpoint
+- [ ] **STA-05**: Concurrent state writes are safe (atomic write-rename pattern with mutex for parallel phases)
+
+### Step Runner
+
+- [ ] **STEP-01**: runStep() wraps a single query() call with budget enforcement, error handling, and verification callback
+- [ ] **STEP-02**: System checks total budget before starting each step and hard-stops if exceeded
+- [ ] **STEP-03**: System tracks cost per step via SDK's total_cost_usd and updates cumulative budget
+- [ ] **STEP-04**: runStepWithCascade() implements failure cascade: retry 3x with different approaches, then skip and flag, then stop
+- [ ] **STEP-05**: Per-step budget exceeded mid-execution is treated as partial completion (run verification to check what got done)
+- [ ] **STEP-06**: SDK errors (network, auth) are not retried — logged and returned as failed
+
+### Programmatic Verifiers
+
+- [ ] **VER-01**: Files verifier checks expected files exist via fs.existsSync()
+- [ ] **VER-02**: Tests verifier runs test command, parses JSON output for pass/fail counts
+- [ ] **VER-03**: Typecheck verifier runs tsc --noEmit and reports errors
+- [ ] **VER-04**: Lint verifier runs lint command and reports errors
+- [ ] **VER-05**: Test coverage verifier checks new source files have corresponding test files
+- [ ] **VER-06**: Observability verifier checks health endpoint, structured logging, error logging
+- [ ] **VER-07**: Docker verifier runs docker compose smoke tests
+- [ ] **VER-08**: Deployment verifier checks Dockerfile builds, env vars consistent, deploy config valid
+- [ ] **VER-09**: All verifiers run in parallel (Promise.all), docker runs after others pass
+
+### Phase Runner
+
+- [ ] **PHA-01**: Phase runner executes full cycle: context → plan → verify plan → execute → test → gap closure → docs
+- [ ] **PHA-02**: Context gathering detects gray areas, locks decisions in CONTEXT.md, captures deferred ideas
+- [ ] **PHA-03**: Plan creation via GSD plan-phase, produces PLAN.md
+- [ ] **PHA-04**: Plan verification checks requirement coverage, test task presence, execution order, success criteria, no scope creep
+- [ ] **PHA-05**: Missing test tasks are injected into plan automatically (deterministic code edit)
+- [ ] **PHA-06**: Missing requirement coverage triggers re-planning with specific feedback
+- [ ] **PHA-07**: Execution runs with mock instructions for external services + failure cascade
+- [ ] **PHA-08**: After execution, all programmatic verifiers run
+- [ ] **PHA-09**: Test failures trigger root cause diagnosis → targeted fix plan → execute fix (not blind retry)
+- [ ] **PHA-10**: Test coverage gaps trigger gsd:add-tests to generate missing tests
+- [ ] **PHA-11**: Phase creates file-based checkpoints (CONTEXT.md, PLAN.md, VERIFICATION.md, PHASE_REPORT.md, GAPS.md)
+- [ ] **PHA-12**: Phase runner resumes from last checkpoint on restart (skip completed substeps)
+
+### Pipeline Controller (Wave Model)
+
+- [ ] **PIPE-01**: Wave 1 builds everything possible — GSD new-project, scaffolding, all phases with mocks
+- [ ] **PIPE-02**: External services detected from phase descriptions and built with mock pattern (interface/mock/real/factory)
+- [ ] **PIPE-03**: Mock registry tracks all mocked files precisely for systematic swap
+- [ ] **PIPE-04**: Human checkpoint batches ALL needs: services + skipped items + deferred ideas in ONE interruption
+- [ ] **PIPE-05**: Wave 2 swaps mocks for real implementations using mock registry, runs integration tests
+- [ ] **PIPE-06**: Wave 2 addresses skipped items with user guidance
+- [ ] **PIPE-07**: Wave 3+ runs spec compliance loop: verify every requirement, fix gaps, converge
+- [ ] **PIPE-08**: Spec compliance checks convergence — gaps must decrease each round; stops if not converging
+- [ ] **PIPE-09**: After spec compliance, runs UAT as final gate
+- [ ] **PIPE-10**: After UAT passes, runs gsd:audit-milestone and gsd:complete-milestone
+- [ ] **PIPE-11**: Dependency graph built from roadmap for phase ordering (topological sort)
+
+### CLI
+
+- [ ] **CLI-01**: forge init — interactive requirements gathering across 25+ topics with structured R1/R2 format
+- [ ] **CLI-02**: forge run — executes full wave model autonomously
+- [ ] **CLI-03**: forge phase N — runs single phase through full cycle
+- [ ] **CLI-04**: forge status — displays wave, phase progress, services, skipped items, spec compliance, budget
+- [ ] **CLI-05**: forge resume --env .env.production [--guidance guidance.md] — continues from checkpoint with credentials and guidance
+
+### Cost Control
+
+- [ ] **COST-01**: Per-step budget via maxBudgetUsd on each query() call
+- [ ] **COST-02**: Total project budget hard stop checked before every step
+- [ ] **COST-03**: Per-phase budget tracked (sum of steps)
+- [ ] **COST-04**: Cost logged per step for full visibility
+- [ ] **COST-05**: forge status displays budget breakdown (per phase, total)
+
+### Testing Infrastructure
+
+- [ ] **TEST-01**: Testing methodology injected into project's CLAUDE.md during scaffolding
+- [ ] **TEST-02**: TEST_GUIDE.md created with requirement-to-test mapping (traceability matrix)
+- [ ] **TEST-03**: TEST_GUIDE.md updated after every phase with new test mappings
+- [ ] **TEST-04**: Every requirement must map to at least one test at each tier (unit/integration/scenario)
+- [ ] **TEST-05**: Test pyramid enforced per phase: new code must have tests, test count must increase
+
+### Gap Closure
+
+- [ ] **GAP-01**: Root cause diagnosis categorizes failures: wrong approach, missing dependency, integration mismatch, requirement ambiguity, environment issue
+- [ ] **GAP-02**: Targeted fix plan created based on diagnosis (specific files, specific fix, specific retest)
+- [ ] **GAP-03**: Only the fix plan is executed, not the entire phase again
+
+### External Service Mocking
+
+- [ ] **MOCK-01**: Every mocked service follows pattern: interface + mock + real + factory + FORGE:MOCK tag
+- [ ] **MOCK-02**: Mock registry in state tracks all mocked files precisely
+- [ ] **MOCK-03**: Wave 2 uses mock registry to systematically swap every mock
+- [ ] **MOCK-04**: Mock and real implementations satisfy same TypeScript interface
+
+### Git Integration
+
+- [ ] **GIT-01**: Atomic commits include requirement IDs (feat(R1): ...)
+- [ ] **GIT-02**: GitHub Flow: branch protection on main, phase branches, atomic merges
+- [ ] **GIT-03**: Each phase executes on phase-N branch, merged to main after verification
+
+### Notion Documentation
+
+- [ ] **DOC-01**: 8 mandatory Notion pages created under user-provided parent page during init
+- [ ] **DOC-02**: Pages updated per phase: Architecture, Data Flow, API Ref, Components, Dev Workflow, ADRs, Phase Reports
+- [ ] **DOC-03**: Phase reports include: goals, test results, architecture changes, issues, budget
+- [ ] **DOC-04**: Final milestone docs published on completion
+
+### User Acceptance Testing
+
+- [ ] **UAT-01**: Full application spun up via Docker after spec compliance passes
+- [ ] **UAT-02**: Every user workflow from requirements tested end-to-end
+- [ ] **UAT-03**: Web apps tested via headless browser, APIs via HTTP, CLIs via shell
+- [ ] **UAT-04**: Safety guardrails: sandbox credentials, local SMTP, test DB — never production
+- [ ] **UAT-05**: UAT failure triggers gap closure → retry UAT loop
+- [ ] **UAT-06**: UAT is the final gate — only return to user after UAT passes or not converging
+
+### Requirements Gathering
+
+- [ ] **REQ-01**: forge init gathers requirements across 8 categories (Core, Data, Security, Integrations, Quality, Infrastructure, UX, Business)
+- [ ] **REQ-02**: Each requirement gets structured format: ID, description, acceptance criteria, edge cases, performance, security, observability
+- [ ] **REQ-03**: Requirements produce REQUIREMENTS.md with numbered R1, R2, ... format
+- [ ] **REQ-04**: Compliance flags (SOC 2, HIPAA, GDPR, PCI DSS, WCAG) drive specific build requirements
+
+## v2 Requirements
+
+### Advanced Parallelism
+
+- **PAR-01**: Within-phase subagents for parallel task groups (backend + frontend concurrent)
+- **PAR-02**: Across-phase concurrent query() calls (max 3 concurrent)
+- **PAR-03**: Git conflict resolution agent for concurrent phase work
+
+### Enhanced Reporting
+
+- **RPT-01**: Webhook/Slack notifications for human checkpoint and completion
+- **RPT-02**: Live dashboard showing wave progress, costs, spec compliance
+- **RPT-03**: Cost-per-requirement analysis
+
+### Advanced Features
+
+- **ADV-01**: Agent Teams for cross-repo / multi-project parallelism
+- **ADV-02**: Holdout evaluation (separate AI reviews against requirements)
+- **ADV-03**: Multiple concurrent projects
+- **ADV-04**: Post-phase retrospective and pattern analysis
+- **ADV-05**: Mobile app UAT (React Native/Flutter emulator testing)
+
+## Out of Scope
+
+| Feature | Reason |
+|---------|--------|
+| Web UI / dashboard | CLI tool for developers; web UI quadruples scope |
+| Model-agnostic support | Built on Claude Agent SDK; supporting other models means rebuilding tool ecosystem |
+| Real-time streaming UI | Forge runs unattended by design |
+| Plugin/extension system | Premature abstraction; stabilize verifiers and pipeline first |
+| Learning across projects | Massive scope increase for uncertain value; StrongDM doesn't do this |
+| Deployment to production | Autonomous deployment of autonomous code is a liability; human gate is a feature |
+| Agent-authored code reviews | Redundant with programmatic verification pipeline |
+
+## Traceability
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| (Populated during roadmap creation) | | |
+
+**Coverage:**
+- v1 requirements: 69 total
+- Mapped to phases: 0
+- Unmapped: 69
+
+---
+*Requirements defined: 2026-03-05*
+*Last updated: 2026-03-05 after initial definition*
