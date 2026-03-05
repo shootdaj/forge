@@ -117,8 +117,8 @@ Plans:
 Plans:
 - [x] 06-01-PLAN.md -- Pipeline types, dependency graph (topological sort), and mock manager
 - [x] 06-02-PLAN.md -- Human checkpoint, spec compliance loop, and prompt builders
-- [ ] 06-03-PLAN.md -- Pipeline controller FSM (main runPipeline orchestrator)
-- [ ] 06-04-PLAN.md -- Integration and scenario tests (full requirement coverage)
+- [x] 06-03-PLAN.md -- Pipeline controller FSM (main runPipeline orchestrator)
+- [x] 06-04-PLAN.md -- Integration and scenario tests (full requirement coverage)
 
 ### Phase 7: CLI + Git + Testing Infrastructure
 **Goal**: Users can interact with Forge through CLI commands, code is managed with proper git workflow, and test traceability is maintained
@@ -130,12 +130,12 @@ Plans:
   3. Each phase executes on a phase-N branch with atomic commits including requirement IDs (feat(R1): ...), merged to main after verification
   4. TEST_GUIDE.md is created during scaffolding with requirement-to-test mapping and updated after every phase; every requirement maps to at least one test
   5. Testing methodology is injected into the target project's CLAUDE.md; test pyramid is enforced per phase (new code must have tests)
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 07-01: TBD
-- [ ] 07-02: TBD
-- [ ] 07-03: TBD
+- [ ] 07-01-PLAN.md -- Git workflow utilities and testing infrastructure modules with unit tests
+- [ ] 07-02-PLAN.md -- CLI entry point with all five commands (init, run, phase, status, resume) and status formatter
+- [ ] 07-03-PLAN.md -- Integration and scenario tests (full requirement coverage)
 
 ### Phase 8: Enhancement Layer
 **Goal**: Forge has deep requirements gathering, UAT as a final gate, and Notion documentation -- completing the full autonomous development lifecycle
@@ -167,5 +167,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 4. Programmatic Verifiers | 2/2 | Completed | 2026-03-05 |
 | 5. Phase Runner + Plan Verification + Gap Closure | 3/3 | Complete   | 2026-03-05 |
 | 6. Pipeline Controller (Wave Model) | 4/4 | Complete   | 2026-03-05 |
-| 7. CLI + Git + Testing Infrastructure | 0/? | Not started | - |
+| 7. CLI + Git + Testing Infrastructure | 0/3 | Not started | - |
 | 8. Enhancement Layer | 0/? | Not started | - |
