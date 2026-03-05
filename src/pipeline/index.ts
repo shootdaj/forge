@@ -1,10 +1,12 @@
 /**
  * Pipeline Controller Module - Public API
  *
- * Exposes the dependency graph, mock manager, and all pipeline types
+ * Exposes the dependency graph, mock manager, human checkpoint,
+ * spec compliance, prompt builders, and all pipeline types
  * needed by consumers (CLI, tests).
  *
- * Requirements: PIPE-11, PIPE-02, PIPE-03, MOCK-01, MOCK-02, MOCK-03, MOCK-04
+ * Requirements: PIPE-11, PIPE-02, PIPE-03, PIPE-04, PIPE-07, PIPE-08,
+ *               MOCK-01, MOCK-02, MOCK-03, MOCK-04
  */
 
 export {
@@ -15,6 +17,28 @@ export {
 } from "./dependency-graph.js";
 
 export { MockManager } from "./mock-manager.js";
+
+export {
+  generateCheckpointReport,
+  formatCheckpointDisplay,
+  writeCheckpointFile,
+  loadResumeData,
+  needsHumanCheckpoint,
+} from "./human-checkpoint.js";
+
+export {
+  runSpecComplianceLoop,
+  checkConvergence,
+  verifyRequirement,
+} from "./spec-compliance.js";
+
+export {
+  buildNewProjectPrompt,
+  buildScaffoldPrompt,
+  buildIntegrationPrompt,
+  buildSkippedItemPrompt,
+  buildComplianceGapPrompt,
+} from "./prompts.js";
 
 export type {
   PipelineContext,
