@@ -81,11 +81,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### CLI
 
-- [ ] **CLI-01**: forge init — interactive requirements gathering across 25+ topics with structured R1/R2 format
-- [ ] **CLI-02**: forge run — executes full wave model autonomously
-- [ ] **CLI-03**: forge phase N — runs single phase through full cycle
-- [ ] **CLI-04**: forge status — displays wave, phase progress, services, skipped items, spec compliance, budget
-- [ ] **CLI-05**: forge resume --env .env.production [--guidance guidance.md] — continues from checkpoint with credentials and guidance
+- [x] **CLI-01**: forge init — interactive requirements gathering across 25+ topics with structured R1/R2 format
+- [x] **CLI-02**: forge run — executes full wave model autonomously
+- [x] **CLI-03**: forge phase N — runs single phase through full cycle
+- [x] **CLI-04**: forge status — displays wave, phase progress, services, skipped items, spec compliance, budget
+- [x] **CLI-05**: forge resume --env .env.production [--guidance guidance.md] — continues from checkpoint with credentials and guidance
 
 ### Cost Control
 
@@ -93,7 +93,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **COST-02**: Total project budget hard stop checked before every step
 - [x] **COST-03**: Per-phase budget tracked (sum of steps)
 - [x] **COST-04**: Cost logged per step for full visibility
-- [ ] **COST-05**: forge status displays budget breakdown (per phase, total)
+- [x] **COST-05**: forge status displays budget breakdown (per phase, total)
 
 ### Testing Infrastructure
 
@@ -245,12 +245,12 @@ Requirements for initial release. Each maps to roadmap phases.
 | MOCK-02 | Phase 6 | Complete |
 | MOCK-03 | Phase 6 | Complete |
 | MOCK-04 | Phase 6 | Complete |
-| CLI-01 | Phase 7 | Pending |
-| CLI-02 | Phase 7 | Pending |
-| CLI-03 | Phase 7 | Pending |
-| CLI-04 | Phase 7 | Pending |
-| CLI-05 | Phase 7 | Pending |
-| COST-05 | Phase 7 | Pending |
+| CLI-01 | Phase 7 | Complete |
+| CLI-02 | Phase 7 | Complete |
+| CLI-03 | Phase 7 | Complete |
+| CLI-04 | Phase 7 | Complete |
+| CLI-05 | Phase 7 | Complete |
+| COST-05 | Phase 7 | Complete |
 | GIT-01 | Phase 7 | Complete |
 | GIT-02 | Phase 7 | Complete |
 | GIT-03 | Phase 7 | Complete |
