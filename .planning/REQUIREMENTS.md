@@ -48,7 +48,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **VER-06**: Observability verifier checks health endpoint, structured logging, error logging
 - [x] **VER-07**: Docker verifier runs docker compose smoke tests
 - [x] **VER-08**: Deployment verifier checks Dockerfile builds, env vars consistent, deploy config valid
-- [ ] **VER-09**: All verifiers run in parallel (Promise.all), docker runs after others pass
+- [x] **VER-09**: All verifiers run in parallel (Promise.all), docker runs after others pass
 
 ### Phase Runner
 
@@ -214,7 +214,7 @@ Requirements for initial release. Each maps to roadmap phases.
 | VER-06 | Phase 4 | Complete |
 | VER-07 | Phase 4 | Complete |
 | VER-08 | Phase 4 | Complete |
-| VER-09 | Phase 4 | Pending |
+| VER-09 | Phase 4 | Complete |
 | PHA-01 | Phase 5 | Pending |
 | PHA-02 | Phase 5 | Pending |
 | PHA-03 | Phase 5 | Pending |
