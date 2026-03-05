@@ -21,6 +21,7 @@ import type {
 } from "./types.js";
 import { extractUserWorkflows, buildSafetyPrompt, runUATGapClosure } from "./workflows.js";
 import { runStep as defaultRunStep } from "../step-runner/step-runner.js";
+import { BudgetExceededError } from "../step-runner/types.js";
 
 /**
  * Detect the application type from the project configuration.
@@ -435,8 +436,13 @@ export async function runUAT(ctx: UATContext): Promise<UATResult> {
           stepRunnerContext,
           costController,
         );
-      } catch {
-        // Step execution error -- treat as failed workflow
+      } catch (err) {
+        // Re-throw budget errors -- they are system-level, not workflow failures
+        if (err instanceof BudgetExceededError) {
+          await stopApplication(config, ctx);
+          throw err;
+        }
+        // Other step execution errors -- treat as failed workflow
       }
       const durationMs = Date.now() - startMs;
 

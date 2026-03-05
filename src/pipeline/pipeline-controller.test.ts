@@ -285,6 +285,11 @@ function createTestPipelineContext(options: {
   const roadmapContent = options.roadmapContent ?? SIMPLE_ROADMAP;
   const files = new Map<string, string>();
   files.set(".planning/ROADMAP.md", roadmapContent);
+  // Provide REQUIREMENTS.md for UAT runner
+  files.set(
+    "REQUIREMENTS.md",
+    `# Requirements\n\n## R1: Test Feature\n\n**Category:** Core\n**Description:** A test feature\n**Acceptance Criteria:**\n- Feature works correctly\n`,
+  );
 
   const mockFs = {
     existsSync: (p: string) => files.has(p),
@@ -304,6 +309,34 @@ function createTestPipelineContext(options: {
     mkdirSync: () => {},
   };
 
+  // Mock exec function for UAT health checks (returns success immediately)
+  const mockExecFn = (_cmd: string): string => "OK";
+
+  // Mock runStepFn for UAT: writes passing result files to mock fs
+  const mockRunStepFn = async (
+    name: string,
+    opts: any,
+    _ctx: any,
+    _cc: any,
+  ): Promise<any> => {
+    stepCalls.push({ name, prompt: opts.prompt });
+    if (name.startsWith("uat-UAT-")) {
+      const workflowId = name.replace("uat-", "");
+      files.set(
+        `.forge/uat/${workflowId}.json`,
+        JSON.stringify({ passed: true, stepsPassed: 1, stepsFailed: 0, errors: [] }),
+      );
+    }
+    return {
+      status: "verified",
+      costUsd: 0.01,
+      costData: { totalCostUsd: 0.01 },
+      result: "done",
+      structuredOutput: null,
+      sessionId: "mock",
+    };
+  };
+
   const ctx: PipelineContext = {
     config,
     stateManager,
@@ -311,6 +344,8 @@ function createTestPipelineContext(options: {
     costController,
     runPhaseFn: trackedRunPhaseFn,
     fs: mockFs as any,
+    execFn: mockExecFn,
+    runStepFn: mockRunStepFn as any,
   };
 
   return {
@@ -747,11 +782,11 @@ describe("Pipeline Wave 3+ and Completion", () => {
 
     expect(result.status).toBe("completed");
 
-    // UAT step should have been called
+    // UAT step should have been called (via runUAT -> runStepFn)
     const uatCalls = getStepCalls().filter(
       (c) =>
-        c.prompt.includes("user acceptance testing") ||
-        c.prompt.includes("Run user acceptance"),
+        c.name.startsWith("uat-") ||
+        c.prompt.includes("UAT Test:"),
     );
     expect(uatCalls.length).toBeGreaterThan(0);
   });
@@ -823,44 +858,35 @@ describe("Pipeline Error Handling", () => {
   });
 
   it("TestPipeline_BudgetExceeded", async () => {
-    // Simulate budget exceeded during a runStep call
+    // Simulate budget exceeded during a UAT runStepFn call.
+    // UAT now goes through ctx.runStepFn, not executeQueryBehavior.
     const { ctx } = createTestPipelineContext({
       initialState: {
         status: "human_checkpoint",
         servicesNeeded: [],
         skippedItems: [],
       },
-      executeQueryBehavior: async (opts: any) => {
-        const prompt = opts.prompt as string;
-
-        // Let compliance verification pass
-        if (prompt.includes("Verify whether requirement")) {
-          return {
-            ok: true,
-            result: "",
-            structuredOutput: { passed: true, gapDescription: "" },
-            cost: { totalCostUsd: 0.01 },
-            sessionId: "mock",
-          };
-        }
-
-        // UAT step throws budget exceeded
-        if (
-          prompt.includes("user acceptance testing") ||
-          prompt.includes("Run user acceptance")
-        ) {
-          throw new BudgetExceededError(200, 200);
-        }
-
-        return {
-          ok: true,
-          result: "done",
-          structuredOutput: null,
-          cost: { totalCostUsd: 0.01 },
-          sessionId: "mock",
-        };
-      },
     });
+
+    // Override runStepFn to throw BudgetExceededError on UAT calls
+    (ctx as any).runStepFn = async (
+      name: string,
+      _opts: any,
+      _sCtx: any,
+      _cc: any,
+    ): Promise<any> => {
+      if (name.startsWith("uat-")) {
+        throw new BudgetExceededError(200, 200);
+      }
+      return {
+        status: "verified",
+        costUsd: 0.01,
+        costData: { totalCostUsd: 0.01 },
+        result: "done",
+        structuredOutput: null,
+        sessionId: "mock",
+      };
+    };
 
     const result = await runPipeline(ctx);
 
@@ -959,66 +985,89 @@ describe("Pipeline Edge Cases", () => {
   });
 
   it("TestPipeline_UAT_RetriesOnFailure", async () => {
-    let uatCallCount = 0;
+    // UAT retry logic now lives inside runUAT(). The mockRunStepFn must
+    // write a failing result on the first call and a passing result on
+    // the second call for the same workflow. The gap-closure step is
+    // also routed through runStepFn.
+    const uatCallCounts = new Map<string, number>();
 
-    const { ctx, getStepCalls } = createTestPipelineContext({
-      executeQueryBehavior: async (opts: any) => {
-        const prompt = opts.prompt as string;
+    const { ctx, getStepCalls } = createTestPipelineContext();
 
-        if (prompt.includes("Verify whether requirement")) {
-          return {
-            ok: true,
-            result: "",
-            structuredOutput: { passed: true, gapDescription: "" },
-            cost: { totalCostUsd: 0.01 },
-            sessionId: "mock",
-          };
-        }
-
-        // First UAT attempt fails, second succeeds
-        if (prompt.includes("user acceptance testing") || prompt.includes("Run user acceptance")) {
-          uatCallCount++;
-          if (uatCallCount === 1) {
-            return {
-              ok: false,
-              error: {
-                category: "execution_error",
-                message: "UAT tests failed",
-                mayHavePartialWork: false,
-              },
-              result: "",
-              cost: { totalCostUsd: 0.05 },
-              sessionId: "mock",
-            };
-          }
-          return {
-            ok: true,
-            result: "UAT passed",
-            structuredOutput: null,
-            cost: { totalCostUsd: 0.05 },
-            sessionId: "mock",
-          };
-        }
-
-        return {
-          ok: true,
-          result: "done",
-          structuredOutput: null,
-          cost: { totalCostUsd: 0.01 },
-          sessionId: "mock",
-        };
+    // Override runStepFn to simulate first-attempt failure, second-attempt pass
+    const files = new Map<string, string>();
+    files.set(
+      "REQUIREMENTS.md",
+      `# Requirements\n\n## R1: Test Feature\n\n**Category:** Core\n**Description:** A test feature\n**Acceptance Criteria:**\n- Feature works correctly\n`,
+    );
+    // Re-wire the mock filesystem so runUAT reads from our map
+    const originalFs = ctx.fs;
+    const patchedFs = {
+      ...originalFs,
+      existsSync: (p: string) => files.has(p) || (originalFs as any).existsSync(p),
+      readFileSync: (p: string, enc?: string) => {
+        if (files.has(p)) return files.get(p)!;
+        return (originalFs as any).readFileSync(p, enc);
       },
-    });
+      writeFileSync: (p: string, data: string) => {
+        files.set(p, data);
+        (originalFs as any).writeFileSync(p, data);
+      },
+      mkdirSync: () => {},
+    };
+    (ctx as any).fs = patchedFs;
+
+    (ctx as any).runStepFn = async (
+      name: string,
+      opts: any,
+      sCtx: any,
+      cc: any,
+    ): Promise<any> => {
+      // Track step calls for assertions
+      getStepCalls().push({ name, prompt: opts.prompt });
+
+      if (name.startsWith("uat-")) {
+        const count = (uatCallCounts.get(name) ?? 0) + 1;
+        uatCallCounts.set(name, count);
+
+        const workflowId = name.replace("uat-", "");
+        if (count === 1) {
+          // First attempt: write failing result
+          files.set(
+            `.forge/uat/${workflowId}.json`,
+            JSON.stringify({ passed: false, stepsPassed: 0, stepsFailed: 1, errors: ["First attempt failed"] }),
+          );
+        } else {
+          // Subsequent attempts: write passing result
+          files.set(
+            `.forge/uat/${workflowId}.json`,
+            JSON.stringify({ passed: true, stepsPassed: 1, stepsFailed: 0, errors: [] }),
+          );
+        }
+      }
+
+      return {
+        status: "verified",
+        costUsd: 0.01,
+        costData: { totalCostUsd: 0.01 },
+        result: "done",
+        structuredOutput: null,
+        sessionId: "mock",
+      };
+    };
 
     const result = await runPipeline(ctx);
 
-    // Should complete because second UAT attempt passes
+    // Should complete because second UAT attempt passes after gap closure
     expect(result.status).toBe("completed");
-    // There should be a gap closure step between UAT attempts
-    const gapClosureSteps = getStepCalls().filter(
-      (c) => c.prompt.includes("UAT attempt") && c.prompt.includes("failed"),
-    );
-    expect(gapClosureSteps.length).toBeGreaterThan(0);
+
+    // There should be multiple calls for the same UAT workflow (retry behavior)
+    const uatStepCalls = getStepCalls().filter((c) => c.name.startsWith("uat-UAT-"));
+    // At least 2 calls: original attempt + retry
+    expect(uatStepCalls.length).toBeGreaterThanOrEqual(2);
+
+    // Gap closure step should also have been called (step name: uat-fix-{workflowId})
+    const gapClosureCalls = getStepCalls().filter((c) => c.name.startsWith("uat-fix-"));
+    expect(gapClosureCalls.length).toBeGreaterThan(0);
   });
 
   it("TestPipeline_StateUpdated_AtWaveBoundaries", async () => {
