@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-03-05T14:07:31.000Z"
+last_updated: "2026-03-05T14:40:14.000Z"
 progress:
   total_phases: 8
   completed_phases: 2
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 4
+  completed_plans: 4
 ---
 
 # Project State
@@ -18,23 +18,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Every step verified by code, not agent self-report. Forge maximizes autonomous progress.
-**Current focus:** Phase 5 complete. All 3 plans done. Ready for Phase 6 (Pipeline Controller).
+**Current focus:** Phase 6 in progress. Plan 01 complete (types, dependency graph, mock manager). 3 plans remaining.
 
 ## Current Position
 
-Phase: 5 of 8 (Phase Runner) -- COMPLETE
-Plan: 3 of 3 in current phase (05-01, 05-02, 05-03 complete)
-Status: Phase 5 complete. All 3 plans done (66 tests, full integration + scenario coverage)
-Last activity: 2026-03-05 -- Plan 05-03 complete (19 new tests, integration + scenario tests for phase runner)
+Phase: 6 of 8 (Pipeline Controller) -- IN PROGRESS
+Plan: 1 of 4 in current phase (06-01 complete)
+Status: Plan 06-01 complete (32 tests, 6 files). Dependency graph + mock manager ready. Plans 02-04 remaining.
+Last activity: 2026-03-05 -- Plan 06-01 complete (pipeline types, dependency graph with topological sort, mock manager)
 
-Progress: [████████░░] 70%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
-- Average duration: ~6 min
-- Total execution time: 5 sessions
+- Total plans completed: 7
+- Average duration: ~5 min
+- Total execution time: 6 sessions
 
 **By Phase:**
 
@@ -43,9 +43,10 @@ Progress: [████████░░] 70%
 | Phase 1: SDK POC | 1 | 63 tests | N/A |
 | Phase 4: Verifiers | 2 | 67 tests, 24 files | ~5 min |
 | Phase 5: Phase Runner | 3/3 | 66 tests, 20 files | ~5 min |
+| Phase 6: Pipeline Controller | 1/4 | 32 tests, 6 files | ~5 min |
 
 **Recent Trend:**
-- Last 6 plans: Phase 1 complete, Phase 4 Plan 1 complete, Phase 4 Plan 2 complete, Phase 5 Plan 1 complete, Phase 5 Plan 2 complete, Phase 5 Plan 3 complete
+- Last 7 plans: Phase 1 complete, Phase 4 Plan 1 complete, Phase 4 Plan 2 complete, Phase 5 Plan 1 complete, Phase 5 Plan 2 complete, Phase 5 Plan 3 complete, Phase 6 Plan 1 complete
 - Trend: On track
 
 *Updated after each plan completion*
@@ -78,6 +79,10 @@ Recent decisions affecting current work:
 - [05-03]: In-memory filesystem pattern (Map-based) used for phase runner integration/scenario tests for speed and determinism
 - [05-03]: Scenario tests verify observable outcomes (PhaseResult, files, state) not internal wiring -- stable across refactors
 - [05-03]: Gap closure assertions match actual formatGapsReport output text, not internal enum values
+- [06-01]: Kahn's algorithm for topological sort produces wave groupings naturally (phases with no unresolved deps form each wave)
+- [06-01]: 12 known service patterns with keyword matching for external service detection (extensible array)
+- [06-01]: MockManager uses StateManager.update() for registry persistence -- same crash-safe pattern as all state mutations
+- [06-01]: buildMockInstructions generates prompt text (string), not structured data -- consumed as prompt appendix by phase runner
 
 ### Pending Todos
 
@@ -92,5 +97,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-05
-Stopped at: Completed 05-03-PLAN.md (19 new integration + scenario tests for phase runner). Phase 5 fully complete (3/3 plans, 66 tests).
+Stopped at: Completed 06-01-PLAN.md (pipeline types, dependency graph, mock manager). 32 tests, 6 files. Phase 6 Plan 1/4 done.
 Resume file: None
