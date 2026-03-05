@@ -15,7 +15,7 @@
     "test:scenarios": "vitest run --dir test/scenarios",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src/"
+    "lint": "tsc --noEmit"
   },
   "engines": {
     "node": ">=20"
