@@ -31,23 +31,23 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Step Runner
 
-- [ ] **STEP-01**: runStep() wraps a single query() call with budget enforcement, error handling, and verification callback
-- [ ] **STEP-02**: System checks total budget before starting each step and hard-stops if exceeded
-- [ ] **STEP-03**: System tracks cost per step via SDK's total_cost_usd and updates cumulative budget
-- [ ] **STEP-04**: runStepWithCascade() implements failure cascade: retry 3x with different approaches, then skip and flag, then stop
-- [ ] **STEP-05**: Per-step budget exceeded mid-execution is treated as partial completion (run verification to check what got done)
-- [ ] **STEP-06**: SDK errors (network, auth) are not retried — logged and returned as failed
+- [x] **STEP-01**: runStep() wraps a single query() call with budget enforcement, error handling, and verification callback
+- [x] **STEP-02**: System checks total budget before starting each step and hard-stops if exceeded
+- [x] **STEP-03**: System tracks cost per step via SDK's total_cost_usd and updates cumulative budget
+- [x] **STEP-04**: runStepWithCascade() implements failure cascade: retry 3x with different approaches, then skip and flag, then stop
+- [x] **STEP-05**: Per-step budget exceeded mid-execution is treated as partial completion (run verification to check what got done)
+- [x] **STEP-06**: SDK errors (network, auth) are not retried — logged and returned as failed
 
 ### Programmatic Verifiers
 
-- [ ] **VER-01**: Files verifier checks expected files exist via fs.existsSync()
-- [ ] **VER-02**: Tests verifier runs test command, parses JSON output for pass/fail counts
-- [ ] **VER-03**: Typecheck verifier runs tsc --noEmit and reports errors
-- [ ] **VER-04**: Lint verifier runs lint command and reports errors
-- [ ] **VER-05**: Test coverage verifier checks new source files have corresponding test files
-- [ ] **VER-06**: Observability verifier checks health endpoint, structured logging, error logging
-- [ ] **VER-07**: Docker verifier runs docker compose smoke tests
-- [ ] **VER-08**: Deployment verifier checks Dockerfile builds, env vars consistent, deploy config valid
+- [x] **VER-01**: Files verifier checks expected files exist via fs.existsSync()
+- [x] **VER-02**: Tests verifier runs test command, parses JSON output for pass/fail counts
+- [x] **VER-03**: Typecheck verifier runs tsc --noEmit and reports errors
+- [x] **VER-04**: Lint verifier runs lint command and reports errors
+- [x] **VER-05**: Test coverage verifier checks new source files have corresponding test files
+- [x] **VER-06**: Observability verifier checks health endpoint, structured logging, error logging
+- [x] **VER-07**: Docker verifier runs docker compose smoke tests
+- [x] **VER-08**: Deployment verifier checks Dockerfile builds, env vars consistent, deploy config valid
 - [ ] **VER-09**: All verifiers run in parallel (Promise.all), docker runs after others pass
 
 ### Phase Runner
@@ -89,10 +89,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Cost Control
 
-- [ ] **COST-01**: Per-step budget via maxBudgetUsd on each query() call
-- [ ] **COST-02**: Total project budget hard stop checked before every step
-- [ ] **COST-03**: Per-phase budget tracked (sum of steps)
-- [ ] **COST-04**: Cost logged per step for full visibility
+- [x] **COST-01**: Per-step budget via maxBudgetUsd on each query() call
+- [x] **COST-02**: Total project budget hard stop checked before every step
+- [x] **COST-03**: Per-phase budget tracked (sum of steps)
+- [x] **COST-04**: Cost logged per step for full visibility
 - [ ] **COST-05**: forge status displays budget breakdown (per phase, total)
 
 ### Testing Infrastructure
@@ -196,24 +196,24 @@ Requirements for initial release. Each maps to roadmap phases.
 | STA-03 | Phase 2 | **Delivered** |
 | STA-04 | Phase 2 | **Delivered** |
 | STA-05 | Phase 2 | **Delivered** |
-| STEP-01 | Phase 3 | Pending |
-| STEP-02 | Phase 3 | Pending |
-| STEP-03 | Phase 3 | Pending |
-| STEP-04 | Phase 3 | Pending |
-| STEP-05 | Phase 3 | Pending |
-| STEP-06 | Phase 3 | Pending |
-| COST-01 | Phase 3 | Pending |
-| COST-02 | Phase 3 | Pending |
-| COST-03 | Phase 3 | Pending |
-| COST-04 | Phase 3 | Pending |
-| VER-01 | Phase 4 | Pending |
-| VER-02 | Phase 4 | Pending |
-| VER-03 | Phase 4 | Pending |
-| VER-04 | Phase 4 | Pending |
-| VER-05 | Phase 4 | Pending |
-| VER-06 | Phase 4 | Pending |
-| VER-07 | Phase 4 | Pending |
-| VER-08 | Phase 4 | Pending |
+| STEP-01 | Phase 3 | **Delivered** |
+| STEP-02 | Phase 3 | **Delivered** |
+| STEP-03 | Phase 3 | **Delivered** |
+| STEP-04 | Phase 3 | **Delivered** |
+| STEP-05 | Phase 3 | **Delivered** |
+| STEP-06 | Phase 3 | **Delivered** |
+| COST-01 | Phase 3 | **Delivered** |
+| COST-02 | Phase 3 | **Delivered** |
+| COST-03 | Phase 3 | **Delivered** |
+| COST-04 | Phase 3 | **Delivered** |
+| VER-01 | Phase 4 | Complete |
+| VER-02 | Phase 4 | Complete |
+| VER-03 | Phase 4 | Complete |
+| VER-04 | Phase 4 | Complete |
+| VER-05 | Phase 4 | Complete |
+| VER-06 | Phase 4 | Complete |
+| VER-07 | Phase 4 | Complete |
+| VER-08 | Phase 4 | Complete |
 | VER-09 | Phase 4 | Pending |
 | PHA-01 | Phase 5 | Pending |
 | PHA-02 | Phase 5 | Pending |

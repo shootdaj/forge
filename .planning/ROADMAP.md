@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: SDK Proof of Concept** - Validate Agent SDK API surface with working query() call, structured output, and cost extraction
 - [x] **Phase 2: Foundation (Config + State)** - Project config loading with validation and crash-safe state persistence
-- [ ] **Phase 3: Step Runner + Cost Controller** - Core primitive wrapping query() with budget enforcement, error handling, and failure cascade
+- [x] **Phase 3: Step Runner + Cost Controller** - Core primitive wrapping query() with budget enforcement, error handling, and failure cascade
 - [ ] **Phase 4: Programmatic Verifiers** - Registry of deterministic code checks that run after every step
 - [ ] **Phase 5: Phase Runner + Plan Verification + Gap Closure** - Full phase lifecycle orchestration with checkpoints and resumability
 - [ ] **Phase 6: Pipeline Controller (Wave Model)** - Wave model FSM with dependency graph, mock management, spec compliance, and human checkpoint
@@ -64,11 +64,10 @@ Plans:
   3. runStepWithCascade() retries a failed step up to 3 times with different approaches, then skips and flags, then stops -- each retry includes prior error context
   4. Cost is tracked per step and accumulated per phase, with the cost log queryable for any step or phase
   5. SDK errors (network, auth) are distinguished from step failures and are not retried
-**Plans**: TBD
+**Plans**: Complete
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
+- [x] 03-01: Step runner, cost controller, cascade, types, and full test suite
 
 ### Phase 4: Programmatic Verifiers
 **Goal**: System can programmatically verify build artifacts through deterministic code checks, never relying on agent self-report
@@ -80,11 +79,11 @@ Plans:
   3. Coverage verifier checks that new source files have corresponding test files; observability verifier checks health endpoint and structured logging
   4. Docker verifier runs docker compose smoke tests; deployment verifier checks Dockerfile builds and env var consistency
   5. All verifiers run in parallel (Promise.all) with Docker running after others pass, and results are aggregated into a single verification report
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 04-01: TBD
-- [ ] 04-02: TBD
+- [ ] 04-01: Types, utils, config schema update, and all 8 individual verifiers with unit tests
+- [ ] 04-02: Verifier registry (runAll), integration tests, and scenario tests
 
 ### Phase 5: Phase Runner + Plan Verification + Gap Closure
 **Goal**: System can execute a complete phase lifecycle (context through docs) with plan verification gates, targeted gap closure, and checkpoint-based resumability
@@ -163,7 +162,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 |-------|----------------|--------|-----------|
 | 1. SDK Proof of Concept | 1/1 | Completed | 2026-03-05 |
 | 2. Foundation (Config + State) | 2/2 | Completed | 2026-03-05 |
-| 3. Step Runner + Cost Controller | 0/? | Not started | - |
+| 3. Step Runner + Cost Controller | 1/1 | Completed | 2026-03-05 |
 | 4. Programmatic Verifiers | 0/? | Not started | - |
 | 5. Phase Runner + Plan Verification + Gap Closure | 0/? | Not started | - |
 | 6. Pipeline Controller (Wave Model) | 0/? | Not started | - |
