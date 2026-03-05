@@ -100,7 +100,7 @@ Plans:
 Plans:
 - [x] 05-01: Types, checkpoint module, and plan verification (pure functions)
 - [x] 05-02: Substep implementations, prompt builders, main phase runner, and unit tests
-- [ ] 05-03: Integration and scenario tests (full requirement coverage)
+- [x] 05-03: Integration and scenario tests (full requirement coverage)
 
 ### Phase 6: Pipeline Controller (Wave Model)
 **Goal**: System can orchestrate multi-wave autonomous execution -- building with mocks, batching human needs into one checkpoint, swapping to real integrations, and converging on spec compliance
@@ -112,12 +112,13 @@ Plans:
   3. Wave 2 uses the mock registry to systematically swap every mock for real implementations and runs integration tests; skipped items are addressed with user guidance
   4. Spec compliance loop (Wave 3+) verifies every requirement, fixes gaps, and checks convergence (gaps must decrease each round; stops if not converging)
   5. Dependency graph built from roadmap determines phase ordering via topological sort; after UAT passes, milestone audit and completion run
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 06-01: TBD
-- [ ] 06-02: TBD
-- [ ] 06-03: TBD
+- [ ] 06-01-PLAN.md -- Pipeline types, dependency graph (topological sort), and mock manager
+- [ ] 06-02-PLAN.md -- Human checkpoint, spec compliance loop, and prompt builders
+- [ ] 06-03-PLAN.md -- Pipeline controller FSM (main runPipeline orchestrator)
+- [ ] 06-04-PLAN.md -- Integration and scenario tests (full requirement coverage)
 
 ### Phase 7: CLI + Git + Testing Infrastructure
 **Goal**: Users can interact with Forge through CLI commands, code is managed with proper git workflow, and test traceability is maintained
@@ -165,6 +166,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 3. Step Runner + Cost Controller | 1/1 | Completed | 2026-03-05 |
 | 4. Programmatic Verifiers | 2/2 | Completed | 2026-03-05 |
 | 5. Phase Runner + Plan Verification + Gap Closure | 3/3 | Complete   | 2026-03-05 |
-| 6. Pipeline Controller (Wave Model) | 0/? | Not started | - |
+| 6. Pipeline Controller (Wave Model) | 0/4 | Not started | - |
 | 7. CLI + Git + Testing Infrastructure | 0/? | Not started | - |
 | 8. Enhancement Layer | 0/? | Not started | - |
