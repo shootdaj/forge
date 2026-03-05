@@ -9,25 +9,25 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### SDK Integration
 
-- [ ] **SDK-01**: System can call Agent SDK query() with fresh context per step and receive typed messages
-- [ ] **SDK-02**: System configures systemPrompt preset for Claude Code behavior and GSD skill availability
-- [ ] **SDK-03**: System configures settingSources to load CLAUDE.md and project settings
-- [ ] **SDK-04**: System operates in bypassPermissions mode with allowDangerouslySkipPermissions for autonomous execution
-- [ ] **SDK-05**: System extracts structured output from query() responses using outputFormat with JSON schema
+- [x] **SDK-01**: System can call Agent SDK query() with fresh context per step and receive typed messages
+- [x] **SDK-02**: System configures systemPrompt preset for Claude Code behavior and GSD skill availability
+- [x] **SDK-03**: System configures settingSources to load CLAUDE.md and project settings
+- [x] **SDK-04**: System operates in bypassPermissions mode with allowDangerouslySkipPermissions for autonomous execution
+- [x] **SDK-05**: System extracts structured output from query() responses using outputFormat with JSON schema
 
 ### Configuration
 
-- [ ] **CFG-01**: User can define project config in forge.config.json (model, budgets, retries, testing, parallelism, Notion, deployment)
-- [ ] **CFG-02**: System loads and validates config on startup with sensible defaults
-- [ ] **CFG-03**: Config supports all options from spec: model, max_budget_total, max_budget_per_step, max_retries, max_compliance_rounds, max_turns_per_step, testing commands, verification toggles, parallelism settings
+- [x] **CFG-01**: User can define project config in forge.config.json (model, budgets, retries, testing, parallelism, Notion, deployment)
+- [x] **CFG-02**: System loads and validates config on startup with sensible defaults
+- [x] **CFG-03**: Config supports all options from spec: model, max_budget_total, max_budget_per_step, max_retries, max_compliance_rounds, max_turns_per_step, testing commands, verification toggles, parallelism settings
 
 ### State Management
 
-- [ ] **STA-01**: System persists orchestrator state to forge-state.json with snake_case keys
-- [ ] **STA-02**: TypeScript runtime maps camelCase properties to snake_case JSON via serialization layer
-- [ ] **STA-03**: State tracks: wave, phases, services_needed, mock_registry, skipped_items, credentials, human_guidance, spec_compliance, uat_results, total_budget_used
-- [ ] **STA-04**: State survives process crashes and can be resumed from last checkpoint
-- [ ] **STA-05**: Concurrent state writes are safe (atomic write-rename pattern with mutex for parallel phases)
+- [x] **STA-01**: System persists orchestrator state to forge-state.json with snake_case keys
+- [x] **STA-02**: TypeScript runtime maps camelCase properties to snake_case JSON via serialization layer
+- [x] **STA-03**: State tracks: wave, phases, services_needed, mock_registry, skipped_items, credentials, human_guidance, spec_compliance, uat_results, total_budget_used
+- [x] **STA-04**: State survives process crashes and can be resumed from last checkpoint
+- [x] **STA-05**: Concurrent state writes are safe (atomic write-rename pattern with mutex for parallel phases)
 
 ### Step Runner
 
@@ -183,19 +183,19 @@ Requirements for initial release. Each maps to roadmap phases.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SDK-01 | Phase 1 | Pending |
-| SDK-02 | Phase 1 | Pending |
-| SDK-03 | Phase 1 | Pending |
-| SDK-04 | Phase 1 | Pending |
-| SDK-05 | Phase 1 | Pending |
-| CFG-01 | Phase 2 | Pending |
-| CFG-02 | Phase 2 | Pending |
-| CFG-03 | Phase 2 | Pending |
-| STA-01 | Phase 2 | Pending |
-| STA-02 | Phase 2 | Pending |
-| STA-03 | Phase 2 | Pending |
-| STA-04 | Phase 2 | Pending |
-| STA-05 | Phase 2 | Pending |
+| SDK-01 | Phase 1 | **Delivered** |
+| SDK-02 | Phase 1 | **Delivered** |
+| SDK-03 | Phase 1 | **Delivered** |
+| SDK-04 | Phase 1 | **Delivered** |
+| SDK-05 | Phase 1 | **Delivered** |
+| CFG-01 | Phase 2 | **Delivered** |
+| CFG-02 | Phase 2 | **Delivered** |
+| CFG-03 | Phase 2 | **Delivered** |
+| STA-01 | Phase 2 | **Delivered** |
+| STA-02 | Phase 2 | **Delivered** |
+| STA-03 | Phase 2 | **Delivered** |
+| STA-04 | Phase 2 | **Delivered** |
+| STA-05 | Phase 2 | **Delivered** |
 | STEP-01 | Phase 3 | Pending |
 | STEP-02 | Phase 3 | Pending |
 | STEP-03 | Phase 3 | Pending |

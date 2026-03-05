@@ -13,18 +13,16 @@
 
 ```bash
 # Unit tests (fast, no dependencies)
-npx vitest run --dir src
+npx vitest run src/
 
 # Integration tests (mock SDK interactions)
-npx vitest run --dir test/integration
+npx vitest run test/integration/
 
 # Scenario tests (end-to-end CLI flows)
-npx vitest run --dir test/scenarios
+npx vitest run test/scenarios/
 
-# Full pyramid (run all in order)
-npx vitest run --dir src && \
-  npx vitest run --dir test/integration && \
-  npx vitest run --dir test/scenarios
+# Full pyramid (all tests)
+npx vitest run
 ```
 
 ## Requirement → Test Mapping
@@ -33,19 +31,19 @@ npx vitest run --dir src && \
 
 | Requirement | Unit Tests | Integration Tests | Scenario Tests | Status |
 |---|---|---|---|---|
-| SDK-01: query() with fresh context | _TBD_ | _TBD_ | _TBD_ | Pending |
-| SDK-02: systemPrompt preset | _TBD_ | _TBD_ | _TBD_ | Pending |
-| SDK-03: settingSources config | _TBD_ | _TBD_ | _TBD_ | Pending |
-| SDK-04: bypassPermissions mode | _TBD_ | _TBD_ | _TBD_ | Pending |
-| SDK-05: structured output extraction | _TBD_ | _TBD_ | _TBD_ | Pending |
-| CFG-01: forge.config.json loading | _TBD_ | _TBD_ | _TBD_ | Pending |
-| CFG-02: config validation with defaults | _TBD_ | _TBD_ | _TBD_ | Pending |
-| CFG-03: all config options supported | _TBD_ | _TBD_ | _TBD_ | Pending |
-| STA-01: state persistence (snake_case) | _TBD_ | _TBD_ | _TBD_ | Pending |
-| STA-02: camelCase/snake_case mapping | _TBD_ | _TBD_ | _TBD_ | Pending |
-| STA-03: full state field tracking | _TBD_ | _TBD_ | _TBD_ | Pending |
-| STA-04: crash recovery | _TBD_ | _TBD_ | _TBD_ | Pending |
-| STA-05: concurrent write safety | _TBD_ | _TBD_ | _TBD_ | Pending |
+| SDK-01: query() with fresh context | `TestProcessQueryMessages_SuccessfulQuery_SDK01`, `TestExtractCostData_ExtractsAllFields`, `TestExecuteQuery_WithMockQueryFn_SDK01` | `TestSDKIntegration_FullPipeline_SuccessfulQuery_EndToEnd` | `TestScenario_QueryExecutesWithCorrectConfig_ReturnsSuccessResult`, `TestScenario_CostDataExtraction_ExtractsCostFromSuccess` | **Covered** |
+| SDK-02: systemPrompt preset | `TestBuildSDKOptions_DefaultConfiguration` | `TestSDKIntegration_OptionsWiring_MinimalOptionsHaveCorrectDefaults` | `TestScenario_QueryExecutesWithCorrectConfig_ConfigIncludesAllRequiredOptions`, `TestScenario_DivergenceDocumentation_DivergencesAreDocumented` | **Covered** |
+| SDK-03: settingSources config | `TestBuildSDKOptions_DefaultConfiguration`, `TestBuildSDKOptions_DisabledPresetAndSettings` | `TestSDKIntegration_OptionsWiring_AllForgeOptionsMappedToSDK` | `TestScenario_QueryExecutesWithCorrectConfig_ConfigIncludesAllRequiredOptions`, `TestScenario_DivergenceDocumentation_DivergencesAreDocumented` | **Covered** |
+| SDK-04: bypassPermissions mode | `TestCategorizeResultSubtype` (5 tests), `TestCategorizeAssistantError` (7 tests), `TestProcessQueryMessages_BudgetExceededError_SDK04`, `TestProcessQueryMessages_MaxTurnsError_SDK04`, `TestProcessQueryMessages_ExecutionError_SDK04`, `TestProcessQueryMessages_StructuredOutputRetryError_SDK04`, `TestProcessQueryMessages_AssistantAuthError_SDK04` | `TestSDKIntegration_ErrorPropagation_AuthError_PropagatesCategory`, `TestSDKIntegration_ErrorPropagation_StructuredOutputRetryExceeded_PropagatesCategory` | `TestScenario_ErrorCategorization` (4 tests), `TestScenario_DivergenceDocumentation_DivergencesAreDocumented` | **Covered** |
+| SDK-05: structured output extraction | `TestProcessQueryMessages_StructuredOutput_SDK05`, `TestZodSchemaConversion_SDK05` (2 tests), `TestExecuteQuery_WithStructuredOutput_SDK05` | `TestSDKIntegration_FullPipeline_StructuredOutput_EndToEnd_SDK05` | `TestScenario_StructuredOutputExtraction` (2 tests) | **Covered** |
+| CFG-01: forge.config.json loading | `TestLoadConfig_MissingFile_ReturnsDefaults`, `TestLoadConfig_EmptyObject_ReturnsDefaults` | `TestIntegration_ConfigAndState_CoexistInSameDir`, `TestIntegration_ConfigModelUsedInState` | `TestScenario_ForgeInit_CreatesConfigAndState` | **Covered** |
+| CFG-02: config validation with defaults | `TestLoadConfig_PartialConfig_MergesWithDefaults`, `TestLoadConfig_InvalidJSON_ThrowsConfigValidationError`, `TestLoadConfig_InvalidValues_ThrowsWithFieldDetail`, `TestLoadConfig_WrongTypes_ThrowsWithFieldDetail`, `TestLoadConfig_NestedDefaults_CFG03`, `TestLoadConfig_CamelCaseMapping_CFG02` | `TestIntegration_ConfigDefaults_AllSections` | `TestScenario_ForgeInit_CreatesConfigAndState`, `TestScenario_CrashRecovery_ConfigStillLoadable_STA04` | **Covered** |
+| CFG-03: all config options supported | `TestLoadConfig_FullConfig_AllFieldsLoaded`, `TestLoadConfig_NestedDefaults_CFG03`, `TestGetDefaultConfig` | `TestIntegration_ConfigDefaults_AllSections` | `TestScenario_ForgeInit_CreatesConfigAndState` | **Covered** |
+| STA-01: state persistence (snake_case) | `TestStateManager_Initialize_CreatesFile_STA01`, `TestStateManager_Initialize_SnakeCaseJSON_STA01` | `TestIntegration_StateRoundTrip_FullData_STA02` | `TestScenario_ForgeInit_CreatesConfigAndState` | **Covered** |
+| STA-02: camelCase/snake_case mapping | `TestSnakeToCamel_SimpleStrings`, `TestCamelToSnake_SimpleStrings`, `TestSnakeToCamelKeys_NestedObjects_STA02`, `TestCamelToSnakeKeys_NestedObjects_STA02`, `TestRoundTrip_SnakeToCamelAndBack`, `TestStateManager_Load_CamelCaseProperties_STA02`, `TestStateManager_SaveLoad_RoundTrip_STA02` | `TestIntegration_StateRoundTrip_FullData_STA02` | `TestScenario_Wave1_PhaseProgression`, `TestScenario_WaveTransition_State_STA03` | **Covered** |
+| STA-03: full state field tracking | `TestCreateInitialState_AllFieldsPresent_STA03`, `TestStateManager_AllFieldsSurviveRoundTrip_STA03` | `TestIntegration_StateRoundTrip_FullData_STA02` | `TestScenario_WaveTransition_State_STA03`, `TestScenario_SpecCompliance_ConvergenceTracking_STA03` | **Covered** |
+| STA-04: crash recovery | `TestAtomicWriteSync_WritesAtomically_STA04`, `TestStateManager_Update_MutatesAndPersists_STA04` | `TestIntegration_StateAfterCrash_STA04` | `TestScenario_CrashRecovery_StatePreserved_STA04`, `TestScenario_CrashRecovery_ConfigStillLoadable_STA04` | **Covered** |
+| STA-05: concurrent write safety | `TestStateManager_ConcurrentUpdates_NoCorruption_STA05`, `TestStateManager_ConcurrentUpdates_PhaseUpdates_STA05` | `TestIntegration_ConcurrentPhaseWrites_STA05` | `TestScenario_Wave1_PhaseProgression` | **Covered** |
 | STEP-01: runStep() wrapper | _TBD_ | _TBD_ | _TBD_ | Pending |
 | STEP-02: budget hard-stop | _TBD_ | _TBD_ | _TBD_ | Pending |
 | STEP-03: cost tracking | _TBD_ | _TBD_ | _TBD_ | Pending |
@@ -56,3 +54,25 @@ npx vitest run --dir src && \
 ## Phase Coverage Log
 
 <!-- Appended after each /ax:phase run -->
+
+### Phase 1: SDK Proof of Concept (2026-03-05)
+
+| Tier | Tests | Passed | Failed |
+|---|---|---|---|
+| Unit | 43 | 43 | 0 |
+| Integration | 8 | 8 | 0 |
+| Scenario | 12 | 12 | 0 |
+| **Total** | **63** | **63** | **0** |
+
+Requirements covered: SDK-01, SDK-02, SDK-03, SDK-04, SDK-05 (all 5/5)
+
+### Phase 2: Foundation (Config + State) (2026-03-05)
+
+| Tier | Tests | Passed | Failed |
+|---|---|---|---|
+| Unit | 35 | 35 | 0 |
+| Integration | 7 | 7 | 0 |
+| Scenario | 7 | 7 | 0 |
+| **Total** | **49** | **49** | **0** |
+
+Requirements covered: CFG-01, CFG-02, CFG-03, STA-01, STA-02, STA-03, STA-04, STA-05 (all 8/8)

@@ -12,8 +12,8 @@ Forge is built bottom-up following its dependency chain: validate the SDK API su
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: SDK Proof of Concept** - Validate Agent SDK API surface with working query() call, structured output, and cost extraction
-- [ ] **Phase 2: Foundation (Config + State)** - Project config loading with validation and crash-safe state persistence
+- [x] **Phase 1: SDK Proof of Concept** - Validate Agent SDK API surface with working query() call, structured output, and cost extraction
+- [x] **Phase 2: Foundation (Config + State)** - Project config loading with validation and crash-safe state persistence
 - [ ] **Phase 3: Step Runner + Cost Controller** - Core primitive wrapping query() with budget enforcement, error handling, and failure cascade
 - [ ] **Phase 4: Programmatic Verifiers** - Registry of deterministic code checks that run after every step
 - [ ] **Phase 5: Phase Runner + Plan Verification + Gap Closure** - Full phase lifecycle orchestration with checkpoints and resumability
@@ -33,11 +33,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Cost data (total_cost_usd) is extractable from SDK result messages
   4. SDK errors (network, auth, budget exceeded) are caught and categorized distinctly from successful results
   5. The POC documents every divergence between SPEC.md pseudocode and actual SDK behavior
-**Plans**: TBD
+**Plans**: Complete
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
+- [x] 01-01: SDK query wrapper with types, configuration, structured output, cost extraction, and error categorization
 
 ### Phase 2: Foundation (Config + State)
 **Goal**: System loads validated project configuration and persists state that survives crashes and process restarts
@@ -49,11 +48,11 @@ Plans:
   3. State file survives simulated process crash (kill -9) and is readable on restart with no corruption
   4. Concurrent writes to state (simulated parallel phases) do not corrupt data (atomic write-rename with mutex)
   5. State tracks all required fields: wave, phases, services_needed, mock_registry, skipped_items, credentials, human_guidance, spec_compliance, uat_results, total_budget_used
-**Plans**: TBD
+**Plans**: Complete
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
+- [x] 02-01: Config module (schema, loader, validation, defaults, camelCase mapping)
+- [x] 02-02: State module (schema, state-manager, atomic writes, mutex, crash safety)
 
 ### Phase 3: Step Runner + Cost Controller
 **Goal**: System can execute individual Agent SDK query() calls with budget enforcement, cost tracking, error handling, and automatic retry cascade
@@ -162,8 +161,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. SDK Proof of Concept | 0/? | Not started | - |
-| 2. Foundation (Config + State) | 0/? | Not started | - |
+| 1. SDK Proof of Concept | 1/1 | Completed | 2026-03-05 |
+| 2. Foundation (Config + State) | 2/2 | Completed | 2026-03-05 |
 | 3. Step Runner + Cost Controller | 0/? | Not started | - |
 | 4. Programmatic Verifiers | 0/? | Not started | - |
 | 5. Phase Runner + Plan Verification + Gap Closure | 0/? | Not started | - |
