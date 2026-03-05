@@ -98,8 +98,8 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 05-01: Types, checkpoint module, and plan verification (pure functions)
-- [ ] 05-02: Substep implementations, prompt builders, main phase runner, and unit tests
+- [x] 05-01: Types, checkpoint module, and plan verification (pure functions)
+- [x] 05-02: Substep implementations, prompt builders, main phase runner, and unit tests
 - [ ] 05-03: Integration and scenario tests (full requirement coverage)
 
 ### Phase 6: Pipeline Controller (Wave Model)
@@ -164,7 +164,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 2. Foundation (Config + State) | 2/2 | Completed | 2026-03-05 |
 | 3. Step Runner + Cost Controller | 1/1 | Completed | 2026-03-05 |
 | 4. Programmatic Verifiers | 2/2 | Completed | 2026-03-05 |
-| 5. Phase Runner + Plan Verification + Gap Closure | 0/? | Not started | - |
+| 5. Phase Runner + Plan Verification + Gap Closure | 2/3 | In progress | - |
 | 6. Pipeline Controller (Wave Model) | 0/? | Not started | - |
 | 7. CLI + Git + Testing Infrastructure | 0/? | Not started | - |
 | 8. Enhancement Layer | 0/? | Not started | - |

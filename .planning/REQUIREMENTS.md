@@ -52,16 +52,16 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Phase Runner
 
-- [ ] **PHA-01**: Phase runner executes full cycle: context -> plan -> verify plan -> execute -> test -> gap closure -> docs
-- [ ] **PHA-02**: Context gathering detects gray areas, locks decisions in CONTEXT.md, captures deferred ideas
-- [ ] **PHA-03**: Plan creation via GSD plan-phase, produces PLAN.md
+- [x] **PHA-01**: Phase runner executes full cycle: context -> plan -> verify plan -> execute -> test -> gap closure -> docs
+- [x] **PHA-02**: Context gathering detects gray areas, locks decisions in CONTEXT.md, captures deferred ideas
+- [x] **PHA-03**: Plan creation via GSD plan-phase, produces PLAN.md
 - [x] **PHA-04**: Plan verification checks requirement coverage, test task presence, execution order, success criteria, no scope creep
 - [x] **PHA-05**: Missing test tasks are injected into plan automatically (deterministic code edit)
 - [x] **PHA-06**: Missing requirement coverage triggers re-planning with specific feedback
-- [ ] **PHA-07**: Execution runs with mock instructions for external services + failure cascade
-- [ ] **PHA-08**: After execution, all programmatic verifiers run
-- [ ] **PHA-09**: Test failures trigger root cause diagnosis -> targeted fix plan -> execute fix (not blind retry)
-- [ ] **PHA-10**: Test coverage gaps trigger gsd:add-tests to generate missing tests
+- [x] **PHA-07**: Execution runs with mock instructions for external services + failure cascade
+- [x] **PHA-08**: After execution, all programmatic verifiers run
+- [x] **PHA-09**: Test failures trigger root cause diagnosis -> targeted fix plan -> execute fix (not blind retry)
+- [x] **PHA-10**: Test coverage gaps trigger gsd:add-tests to generate missing tests
 - [x] **PHA-11**: Phase creates file-based checkpoints (CONTEXT.md, PLAN.md, VERIFICATION.md, PHASE_REPORT.md, GAPS.md)
 - [x] **PHA-12**: Phase runner resumes from last checkpoint on restart (skip completed substeps)
 
@@ -105,9 +105,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Gap Closure
 
-- [ ] **GAP-01**: Root cause diagnosis categorizes failures: wrong approach, missing dependency, integration mismatch, requirement ambiguity, environment issue
-- [ ] **GAP-02**: Targeted fix plan created based on diagnosis (specific files, specific fix, specific retest)
-- [ ] **GAP-03**: Only the fix plan is executed, not the entire phase again
+- [x] **GAP-01**: Root cause diagnosis categorizes failures: wrong approach, missing dependency, integration mismatch, requirement ambiguity, environment issue
+- [x] **GAP-02**: Targeted fix plan created based on diagnosis (specific files, specific fix, specific retest)
+- [x] **GAP-03**: Only the fix plan is executed, not the entire phase again
 
 ### External Service Mocking
 
@@ -215,21 +215,21 @@ Requirements for initial release. Each maps to roadmap phases.
 | VER-07 | Phase 4 | **Delivered** |
 | VER-08 | Phase 4 | **Delivered** |
 | VER-09 | Phase 4 | **Delivered** |
-| PHA-01 | Phase 5 | Pending |
-| PHA-02 | Phase 5 | Pending |
-| PHA-03 | Phase 5 | Pending |
-| PHA-04 | Phase 5 | Complete |
-| PHA-05 | Phase 5 | Complete |
-| PHA-06 | Phase 5 | Complete |
-| PHA-07 | Phase 5 | Pending |
-| PHA-08 | Phase 5 | Pending |
-| PHA-09 | Phase 5 | Pending |
-| PHA-10 | Phase 5 | Pending |
-| PHA-11 | Phase 5 | Complete |
-| PHA-12 | Phase 5 | Complete |
-| GAP-01 | Phase 5 | Pending |
-| GAP-02 | Phase 5 | Pending |
-| GAP-03 | Phase 5 | Pending |
+| PHA-01 | Phase 5 | **Delivered** |
+| PHA-02 | Phase 5 | **Delivered** |
+| PHA-03 | Phase 5 | **Delivered** |
+| PHA-04 | Phase 5 | **Delivered** |
+| PHA-05 | Phase 5 | **Delivered** |
+| PHA-06 | Phase 5 | **Delivered** |
+| PHA-07 | Phase 5 | **Delivered** |
+| PHA-08 | Phase 5 | **Delivered** |
+| PHA-09 | Phase 5 | **Delivered** |
+| PHA-10 | Phase 5 | **Delivered** |
+| PHA-11 | Phase 5 | **Delivered** |
+| PHA-12 | Phase 5 | **Delivered** |
+| GAP-01 | Phase 5 | **Delivered** |
+| GAP-02 | Phase 5 | **Delivered** |
+| GAP-03 | Phase 5 | **Delivered** |
 | PIPE-01 | Phase 6 | Pending |
 | PIPE-02 | Phase 6 | Pending |
 | PIPE-03 | Phase 6 | Pending |
