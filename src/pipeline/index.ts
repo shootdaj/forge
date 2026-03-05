@@ -5,9 +5,12 @@
  * spec compliance, prompt builders, and all pipeline types
  * needed by consumers (CLI, tests).
  *
- * Requirements: PIPE-11, PIPE-02, PIPE-03, PIPE-04, PIPE-07, PIPE-08,
+ * Requirements: PIPE-01, PIPE-02, PIPE-03, PIPE-04, PIPE-05, PIPE-06,
+ *               PIPE-07, PIPE-08, PIPE-09, PIPE-10, PIPE-11,
  *               MOCK-01, MOCK-02, MOCK-03, MOCK-04
  */
+
+export { runPipeline } from "./pipeline-controller.js";
 
 export {
   buildDependencyGraph,
