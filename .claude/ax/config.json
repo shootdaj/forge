@@ -1,0 +1,32 @@
+{
+  "initialized_at": "2026-03-05T00:00:00.000Z",
+  "project_name": "Forge",
+  "notion": {
+    "parent_page_id": "31abe2a0-2022-815c-be31-e3a1ab0eb7ad",
+    "doc_pages": {
+      "architecture": "31abe2a0-2022-8135-890e-fc2d5cade87d",
+      "data_flow": "31abe2a0-2022-81fa-a564-fdedc22ce6db",
+      "api_reference": "31abe2a0-2022-81c6-900b-d9a2c285dc17",
+      "component_index": "31abe2a0-2022-81a4-953e-d89f005a9538",
+      "adrs": "31abe2a0-2022-8109-a61a-f43a680884b1",
+      "deployment": "31abe2a0-2022-81a9-a523-d2217e3c5244",
+      "dev_workflow": "31abe2a0-2022-8175-aeaf-d0497e5130fc",
+      "phase_reports": "31abe2a0-2022-8136-a9b0-c7d90d83a80d"
+    },
+    "last_updated": "2026-03-05T00:00:00.000Z"
+  },
+  "testing": {
+    "stack": "node",
+    "language_version": "22",
+    "test_framework": "vitest",
+    "unit_command": "npx vitest run --dir src",
+    "integration_command": "npx vitest run --dir test/integration",
+    "scenario_command": "npx vitest run --dir test/scenarios",
+    "docker_compose_file": null
+  },
+  "ci": {
+    "provider": "github-actions",
+    "workflow_file": ".github/workflows/ci.yml"
+  },
+  "phases_completed": [1, 2, 3, 4, 5, 6, 7, 8]
+}
