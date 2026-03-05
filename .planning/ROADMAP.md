@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: Programmatic Verifiers** - Registry of deterministic code checks that run after every step
 - [x] **Phase 5: Phase Runner + Plan Verification + Gap Closure** - Full phase lifecycle orchestration with checkpoints and resumability (completed 2026-03-05)
 - [x] **Phase 6: Pipeline Controller (Wave Model)** - Wave model FSM with dependency graph, mock management, spec compliance, and human checkpoint (completed 2026-03-05)
-- [ ] **Phase 7: CLI + Git + Testing Infrastructure** - User-facing commands, git workflow, and test traceability
+- [x] **Phase 7: CLI + Git + Testing Infrastructure** - User-facing commands, git workflow, and test traceability (completed 2026-03-05)
 - [ ] **Phase 8: Enhancement Layer** - Requirements gathering, UAT, Notion docs, and remaining v1 features
 
 ## Phase Details
@@ -134,8 +134,8 @@ Plans:
 
 Plans:
 - [x] 07-01-PLAN.md -- Git workflow utilities and testing infrastructure modules with unit tests
-- [ ] 07-02-PLAN.md -- CLI entry point with all five commands (init, run, phase, status, resume) and status formatter
-- [ ] 07-03-PLAN.md -- Integration and scenario tests (full requirement coverage)
+- [x] 07-02-PLAN.md -- CLI entry point with all five commands (init, run, phase, status, resume) and status formatter
+- [x] 07-03-PLAN.md -- Integration and scenario tests (full requirement coverage)
 
 ### Phase 8: Enhancement Layer
 **Goal**: Forge has deep requirements gathering, UAT as a final gate, and Notion documentation -- completing the full autonomous development lifecycle
@@ -147,12 +147,13 @@ Plans:
   3. UAT uses safety guardrails (sandbox credentials, local SMTP, test DB) and failure triggers gap closure with retry loop; UAT is the final gate before returning to user
   4. 8 mandatory Notion pages are created under user-provided parent page during init and updated per phase (Architecture, Data Flow, API Ref, Components, Dev Workflow, ADRs, Phase Reports)
   5. Phase reports in Notion include goals, test results, architecture changes, issues, and budget; final milestone docs published on completion
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 08-01: TBD
-- [ ] 08-02: TBD
-- [ ] 08-03: TBD
+- [ ] 08-01-PLAN.md -- Requirements gatherer (types, parser, compliance detection, prompt builder, formatter) with unit tests
+- [ ] 08-02-PLAN.md -- Notion documentation module (page creation, per-phase updates, ADRs, phase reports, milestone docs) with unit tests
+- [ ] 08-03-PLAN.md -- UAT runner (Docker lifecycle, workflow extraction, app type detection, safety guardrails, gap closure) with unit tests
+- [ ] 08-04-PLAN.md -- CLI + pipeline integration and integration/scenario tests (full requirement coverage)
 
 ## Progress
 
@@ -167,5 +168,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 4. Programmatic Verifiers | 2/2 | Completed | 2026-03-05 |
 | 5. Phase Runner + Plan Verification + Gap Closure | 3/3 | Complete   | 2026-03-05 |
 | 6. Pipeline Controller (Wave Model) | 4/4 | Complete   | 2026-03-05 |
-| 7. CLI + Git + Testing Infrastructure | 1/3 | In progress | - |
-| 8. Enhancement Layer | 0/? | Not started | - |
+| 7. CLI + Git + Testing Infrastructure | 3/3 | Complete | 2026-03-05 |
+| 8. Enhancement Layer | 0/4 | Not started | - |
