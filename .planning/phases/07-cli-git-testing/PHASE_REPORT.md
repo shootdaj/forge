@@ -1,0 +1,76 @@
+# Phase 7 Report: CLI + Git + Testing Infrastructure
+
+## Summary
+
+| Property | Value |
+|---|---|
+| **Phase** | 7 |
+| **Title** | CLI + Git + Testing Infrastructure |
+| **Status** | Completed |
+| **Branch** | `phase-1-setup` |
+| **Date** | 2026-03-05 |
+
+## Requirements Delivered
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| CLI-01: forge init starts requirements gathering | Done | `createCli()` registers `init` command that creates state, TEST_GUIDE.md, and injects testing methodology (stub for Phase 8 gatherer) |
+| CLI-02: forge run executes full wave model | Done | `createCli()` registers `run` command that builds PipelineContext and calls `runPipeline()`, handles all 4 result statuses |
+| CLI-03: forge phase N runs single phase | Done | `createCli()` registers `phase <number>` command that calls `runPhase()` with pipeline-level setup |
+| CLI-04: forge status displays project state | Done | `formatStatus()` renders 6 sections: header, phase table, services, skipped items, spec compliance, budget breakdown |
+| CLI-05: forge resume continues from checkpoint | Done | `createCli()` registers `resume` command with `--env` and `--guidance` options, calls `loadResumeData()` and `runPipeline()` |
+| COST-05: budget breakdown displayed | Done | `formatBudgetBreakdown()` shows per-phase costs with aligned dollar amounts and total vs limit |
+| GIT-01: atomic commits with requirement IDs | Done | `commitWithReqId()` formats `feat(R1,R2): message` with requirement and phase in commit body |
+| GIT-02: phase branches from main | Done | `createPhaseBranch()` creates `phase-N` branch from main, idempotent if already on branch |
+| GIT-03: merge after verification | Done | `mergePhaseBranch()` merges with `--no-ff` and deletes phase branch |
+| TEST-01: testing methodology injection | Done | `injectTestingMethodology()` appends methodology section to CLAUDE.md with `FORGE:TESTING_METHODOLOGY` marker (idempotent) |
+| TEST-02: TEST_GUIDE.md creation | Done | `createTestGuide()` creates traceability matrix with Req ID, Description, and 3 test tier columns |
+| TEST-03: TEST_GUIDE.md update after phase | Done | `updateTestGuide()` appends test names to correct tier columns, idempotent (no duplicates) |
+| TEST-04: requirement-to-test coverage verification | Done | `verifyTestCoverage()` returns covered/uncovered requirements and missing tiers per requirement |
+| TEST-05: test pyramid enforcement | Done | `enforceTestPyramid()` checks pyramid shape (unit >= integration >= scenario) and count increases |
+
+## Test Results
+
+| Tier | Total | Passed | Failed | Skipped |
+|---|---|---|---|---|
+| Unit | 388 | 388 | 0 | 0 |
+| Integration | 68 | 68 | 0 | 0 |
+| Scenario | 58 | 58 | 0 | 0 |
+
+## New Tests Added
+
+### Unit Tests (70 new)
+- `git.test.ts` -- 20 tests: branch creation, commit formatting, merge lifecycle, branch detection, error handling using real temp git repos
+- `traceability.test.ts` -- 24 tests: TEST_GUIDE.md creation/update/parse, coverage verification, pyramid enforcement, methodology injection with in-memory filesystem
+- `status.test.ts` -- 15 tests: formatStatus all sections, empty state handling, phase table sorting, budget alignment, services/skipped/compliance formatting
+- `index.test.ts` -- 11 tests: createCli command registration, status/init/resume wiring, error handling with mocked modules
+
+### Integration Tests (21 new)
+- `test/integration/cli.test.ts` -- 21 tests: git workflow lifecycle (5), TEST_GUIDE.md lifecycle (3), methodology injection (3), status display (4), CLI wiring (4), pyramid enforcement (2)
+
+### Scenario Tests (12 new)
+- `test/scenarios/cli.test.ts` -- 12 tests: forge init->status, forge run completed/checkpoint, forge phase N, forge resume with credentials/guidance, rich status display, TEST_GUIDE.md full lifecycle, git phase lifecycle
+
+## Architecture Changes
+
+- New module: `src/cli/` with 8 source files
+  - `git.ts` -- 7 git workflow functions (getCurrentBranch, isOnBranch, createPhaseBranch, commitWithReqId, mergePhaseBranch, hasUncommittedChanges, branchExists)
+  - `git.test.ts` -- Unit tests using real temp git repos
+  - `traceability.ts` -- 7 traceability functions (createTestGuide, updateTestGuide, parseTestGuide, verifyTestCoverage, enforceTestPyramid, injectTestingMethodology, generateTestingMethodologyBlock)
+  - `traceability.test.ts` -- Unit tests using in-memory filesystem
+  - `status.ts` -- 6 pure formatting functions (formatStatus, formatPhaseTable, formatBudgetBreakdown, formatServicesNeeded, formatSkippedItems, formatSpecCompliance)
+  - `status.test.ts` -- Unit tests for all formatters
+  - `index.ts` -- Commander CLI entry point with createCli() and main(), 5 commands (init, run, phase, status, resume)
+  - `index.test.ts` -- Unit tests for command wiring with mocked modules
+- Dependency chain: cli -> pipeline, cli -> phase-runner, cli -> config, cli -> state, cli -> step-runner, cli -> sdk
+
+## Known Issues
+
+None.
+
+## Gap Closures
+
+No gap closure needed.
+
+---
+_Generated by `/ax:phase 7`_

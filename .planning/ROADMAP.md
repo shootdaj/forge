@@ -153,7 +153,7 @@ Plans:
 - [x] 08-01-PLAN.md -- Requirements gatherer (types, parser, compliance detection, prompt builder, formatter) with unit tests
 - [x] 08-02-PLAN.md -- Notion documentation module (page creation, per-phase updates, ADRs, phase reports, milestone docs) with unit tests
 - [x] 08-03-PLAN.md -- UAT runner (Docker lifecycle, workflow extraction, app type detection, safety guardrails, gap closure) with unit tests
-- [ ] 08-04-PLAN.md -- CLI + pipeline integration and integration/scenario tests (full requirement coverage)
+- [x] 08-04-PLAN.md -- CLI + pipeline integration and integration/scenario tests (full requirement coverage)
 
 ## Progress
 

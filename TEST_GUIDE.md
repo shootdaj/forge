@@ -44,12 +44,83 @@ npx vitest run
 | STA-03: full state field tracking | `TestCreateInitialState_AllFieldsPresent_STA03`, `TestStateManager_AllFieldsSurviveRoundTrip_STA03` | `TestIntegration_StateRoundTrip_FullData_STA02` | `TestScenario_WaveTransition_State_STA03`, `TestScenario_SpecCompliance_ConvergenceTracking_STA03` | **Covered** |
 | STA-04: crash recovery | `TestAtomicWriteSync_WritesAtomically_STA04`, `TestStateManager_Update_MutatesAndPersists_STA04` | `TestIntegration_StateAfterCrash_STA04` | `TestScenario_CrashRecovery_StatePreserved_STA04`, `TestScenario_CrashRecovery_ConfigStillLoadable_STA04` | **Covered** |
 | STA-05: concurrent write safety | `TestStateManager_ConcurrentUpdates_NoCorruption_STA05`, `TestStateManager_ConcurrentUpdates_PhaseUpdates_STA05` | `TestIntegration_ConcurrentPhaseWrites_STA05` | `TestScenario_Wave1_PhaseProgression` | **Covered** |
-| STEP-01: runStep() wrapper | _TBD_ | _TBD_ | _TBD_ | Pending |
-| STEP-02: budget hard-stop | _TBD_ | _TBD_ | _TBD_ | Pending |
-| STEP-03: cost tracking | _TBD_ | _TBD_ | _TBD_ | Pending |
-| STEP-04: failure cascade | _TBD_ | _TBD_ | _TBD_ | Pending |
-| STEP-05: partial completion handling | _TBD_ | _TBD_ | _TBD_ | Pending |
-| STEP-06: SDK error handling | _TBD_ | _TBD_ | _TBD_ | Pending |
+| STEP-01: runStep() wrapper | `TestRunStep_SuccessfulExecution_STEP01`, `TestRunStep_VerificationFails_STEP01`, `TestRunStep_StructuredOutput_Preserved`, `TestRunStep_VerifyThrows_TreatedAsFailed` | `TestIntegration_StepRunner_FullExecution` | `TestScenario_StepExecution_BudgetEnforcement_CostTracking` | **Covered** |
+| STEP-02: budget hard-stop | `TestRunStep_BudgetHardStop_STEP02`, `TestRunStep_ProjectBudgetCheck_COST02`, `TestCheckBudget_AtBudget_Throws_COST02`, `TestCheckBudget_OverBudget_Throws_COST02` | `TestIntegration_StepRunner_BudgetEnforcement` | `TestScenario_StepExecution_BudgetEnforcement_CostTracking` | **Covered** |
+| STEP-03: cost tracking | `TestRunStep_CostTracking_STEP03`, `TestRunStep_CostLogged_COST04`, `TestRunStep_CostTrackedOnError_COST04` | `TestIntegration_CostController_StateIntegration` | `TestScenario_MultiStepPhase_CostAccumulation` | **Covered** |
+| STEP-04: failure cascade | `TestRunStepWithCascade_FirstAttemptSucceeds_STEP04`, `TestRunStepWithCascade_RetrySucceeds_STEP04`, `TestRunStepWithCascade_AllRetriesFail_SkipAndFlag_STEP04`, `TestRunStepWithCascade_ErrorContextInRetry_STEP04`, `TestRunStepWithCascade_NonSkippable_Stop_STEP04`, `TestRunStepWithCascade_SkippedItemRecorded_STEP04`, `TestRunStepWithCascade_StopDecision_STEP04` | `TestIntegration_Cascade_RetryWithStateUpdates` | `TestScenario_CascadeFailure_RetryAndSkip` | **Covered** |
+| STEP-05: partial completion handling | `TestRunStep_BudgetExceededMidStep_STEP05`, `TestRunStep_BudgetExceededMidStep_VerifyPasses_STEP05` | `TestIntegration_StepRunner_FullExecution` | `TestScenario_StepExecution_BudgetEnforcement_CostTracking` | **Covered** |
+| STEP-06: SDK error handling | `TestRunStep_SDKNetworkError_STEP06`, `TestRunStep_SDKAuthError_STEP06`, `TestRunStepWithCascade_SDKErrorNotRetried_STEP06` | `TestIntegration_StepRunner_BudgetEnforcement` | `TestScenario_SDKError_NoRetry_ImmediateReturn` | **Covered** |
+| COST-01: per-step budget | `TestRunStep_PerStepBudget_COST01`, `TestRunStep_PerStepBudgetOverride_COST01` | `TestIntegration_StepRunner_BudgetEnforcement` | `TestScenario_StepExecution_BudgetEnforcement_CostTracking` | **Covered** |
+| COST-02: project budget hard stop | `TestCheckBudget_UnderBudget_Passes_COST02`, `TestCheckBudget_AtBudget_Throws_COST02`, `TestCheckBudget_OverBudget_Throws_COST02`, `TestCheckBudget_ErrorValues_COST02`, `TestCheckBudget_ZeroBudgetLimit_Throws`, `TestRunStepWithCascade_BudgetExceeded_NoRetry` | `TestIntegration_StepRunner_BudgetEnforcement` | `TestScenario_StepExecution_BudgetEnforcement_CostTracking` | **Covered** |
+| COST-03: per-phase budget | `TestRunStep_PhaseBudgetTracked_COST03`, `TestGetPhaseTotal_SumsCorrectly_COST03`, `TestGetCostLog_QueryByPhase_COST04` | `TestIntegration_CostController_StateIntegration` | `TestScenario_MultiStepPhase_CostAccumulation` | **Covered** |
+| COST-04: cost logged per step | `TestRunStep_CostLogged_COST04`, `TestRecordStepCost_UpdatesLog_COST03`, `TestRecordStepCost_AccumulatesTotal_COST04`, `TestGetCostLog_QueryByStep_COST04`, `TestRecordStepCost_NoPhase_COST04`, `TestGetLog_ReturnsCopy`, `TestRunStepWithCascade_TotalCostAccumulated_COST04` | `TestIntegration_CostController_StateIntegration` | `TestScenario_MultiStepPhase_CostAccumulation` | **Covered** |
+| VER-01: files verifier (fs.existsSync) | `TestFilesVerifier_AllExist`, `TestFilesVerifier_SomeMissing`, `TestFilesVerifier_EmptyList`, `TestFilesVerifier_NoConfig_Skipped`, `TestFilesVerifier_MixedResults` | `TestIntegration_RegistryWiring` | `TestScenario_FullVerificationPipeline` | **Covered** |
+| VER-02: tests verifier (JSON output) | `TestTestsVerifier_AllPass`, `TestTestsVerifier_SomeFail`, `TestTestsVerifier_NoCommand_Skipped`, `TestTestsVerifier_CommandFails`, `TestTestsVerifier_InvalidJSON`, `TestTestsVerifier_ZeroPassed` | `TestIntegration_RegistryWiring` | `TestScenario_FullVerificationPipeline` | **Covered** |
+| VER-03: typecheck verifier (tsc --noEmit) | `TestTypecheckVerifier_NoErrors`, `TestTypecheckVerifier_WithErrors`, `TestTypecheckVerifier_Disabled_Skipped`, `TestTypecheckVerifier_CommandFails`, `TestTypecheckVerifier_ParsesErrorCount` | `TestIntegration_RegistryWiring` | `TestScenario_FullVerificationPipeline` | **Covered** |
+| VER-04: lint verifier | `TestLintVerifier_Clean`, `TestLintVerifier_WithErrors`, `TestLintVerifier_NoCommand_Skipped`, `TestLintVerifier_CommandFails` | `TestIntegration_RegistryWiring` | `TestScenario_FullVerificationPipeline` | **Covered** |
+| VER-05: coverage verifier (test file mapping) | `TestCoverageVerifier_AllCovered`, `TestCoverageVerifier_MissingTests`, `TestCoverageVerifier_NoNewFiles_Skipped`, `TestCoverageVerifier_MultiplePatterns`, `TestCoverageVerifier_ExcludesTestFiles`, `TestCoverageVerifier_Disabled_Skipped` | `TestIntegration_RegistryWiring` | `TestScenario_FullVerificationPipeline` | **Covered** |
+| VER-06: observability verifier | `TestObservabilityVerifier_AllPresent`, `TestObservabilityVerifier_MissingHealth`, `TestObservabilityVerifier_Disabled_Skipped`, `TestObservabilityVerifier_NoProjectRoot` | `TestIntegration_RegistryWiring` | `TestScenario_FullVerificationPipeline` | **Covered** |
+| VER-07: docker verifier (compose smoke) | `TestDockerVerifier_Success`, `TestDockerVerifier_BuildFails`, `TestDockerVerifier_NoComposeFile_Skipped`, `TestDockerVerifier_Disabled_Skipped`, `TestDockerVerifier_HealthCheckFails` | `TestIntegration_DockerGating` | `TestScenario_DockerGatingEndToEnd` | **Covered** |
+| VER-08: deployment verifier | `TestDeploymentVerifier_AllValid`, `TestDeploymentVerifier_NoDockerfile`, `TestDeploymentVerifier_EnvMismatch`, `TestDeploymentVerifier_Disabled_Skipped`, `TestDeploymentVerifier_NoBuildkit`, `TestDeploymentVerifier_BuildFails` | `TestIntegration_RegistryWiring` | `TestScenario_FullVerificationPipeline` | **Covered** |
+| VER-09: parallel execution + Docker gating | `TestRunVerifiers_AllPass`, `TestRunVerifiers_SomeFail`, `TestRunVerifiers_DockerGated`, `TestRunVerifiers_DockerSkippedOnFailure`, `TestGetEnabledVerifiers_DefaultConfig`, `TestGetEnabledVerifiers_CustomConfig`, `TestVerificationReport_Aggregation` | `TestIntegration_ParallelExecution`, `TestIntegration_DockerGating`, `TestIntegration_SkipBehavior`, `TestIntegration_AggregatedReport` | `TestScenario_FullVerificationPipeline`, `TestScenario_PartialFailure`, `TestScenario_ConfigDrivenVerification` | **Covered** |
+| PHA-01: full lifecycle | `TestPhaseRunner_FullLifecycle`, `TestPhaseRunner_CheckpointSequencing` | `TestIntegration_PhaseRunner_FullExecution` | `TestScenario_FullLifecycle_AllSubstepsExecute` | **Covered** |
+| PHA-02: context gathering | `TestContextSubstep_GathersContext`, `TestContextSubstep_SkipsExisting` | `TestIntegration_PhaseRunner_ContextGathering` | `TestScenario_FullLifecycle_AllSubstepsExecute` | **Covered** |
+| PHA-03: plan creation | `TestPhaseRunner_PlanCreation` | `TestIntegration_PhaseRunner_PlanCreation` | `TestScenario_FullLifecycle_AllSubstepsExecute` | **Covered** |
+| PHA-04: plan verification | `TestVerifyPlanCoverage_AllCovered`, `TestVerifyPlanCoverage_MissingRequirements`, `TestParsePlanRequirements_ExtractsIDs` | `TestIntegration_PlanVerification_CatchesMissing` | `TestScenario_PlanVerification_CatchesMissingRequirements` | **Covered** |
+| PHA-05: test task injection | `TestInjectTestTasks_AddsToEnd`, `TestDetectMissingTestTasks_FindsGaps`, `TestInjectTestTasks_NoOpWhenPresent` | `TestIntegration_TestTaskInjection` | `TestScenario_PlanVerification_InjectsTestTasks` | **Covered** |
+| PHA-06: re-planning | `TestPhaseRunner_ReplanOnMissingCoverage` | `TestIntegration_PhaseRunner_ReplanFeedback` | `TestScenario_PlanVerification_TriggersReplan` | **Covered** |
+| PHA-07: execution with cascade | `TestPhaseRunner_ExecutionWithCascade` | `TestIntegration_PhaseRunner_FullExecution` | `TestScenario_FullLifecycle_AllSubstepsExecute` | **Covered** |
+| PHA-08: programmatic verifiers | `TestPhaseRunner_VerifyBuild` | `TestIntegration_PhaseRunner_VerifyBuild` | `TestScenario_FullLifecycle_AllSubstepsExecute` | **Covered** |
+| PHA-09: root cause diagnosis | `TestGapClosure_DiagnosesFailures`, `TestGapClosure_ProducesStructuredDiagnosis` | `TestIntegration_GapClosure_Pipeline` | `TestScenario_GapClosure_TargetedFix` | **Covered** |
+| PHA-10: test gap filling | `TestPhaseRunner_TestGapFilling` | `TestIntegration_PhaseRunner_TestGaps` | `TestScenario_FullLifecycle_AllSubstepsExecute` | **Covered** |
+| PHA-11: file-based checkpoints | `TestWriteCheckpoint_CreatesFile`, `TestWriteCheckpoint_AllTypes`, `TestDetectCheckpoints_FindsExisting` | `TestIntegration_Checkpoint_WriteAndDetect` | `TestScenario_Resumability_SkipsCompletedSubsteps` | **Covered** |
+| PHA-12: resumability | `TestDetectCheckpoints_Resume`, `TestGetCompletedSubsteps_MapsCorrectly`, `TestPhaseRunner_SkipsCompletedSubsteps` | `TestIntegration_Checkpoint_Resume` | `TestScenario_Resumability_SkipsCompletedSubsteps` | **Covered** |
+| GAP-01: root cause categorization | `TestGapClosure_DiagnosesCategories`, `TestGapClosure_AllCategories` | `TestIntegration_GapClosure_Categorization` | `TestScenario_GapClosure_TargetedFix` | **Covered** |
+| GAP-02: targeted fix plan | `TestGapClosure_ProducesFixPlan`, `TestGapClosure_FixPlanStructure` | `TestIntegration_GapClosure_FixPlan` | `TestScenario_GapClosure_TargetedFix` | **Covered** |
+| GAP-03: fix-only execution | `TestGapClosure_MaxRounds`, `TestGapClosure_ExecutesFixOnly` | `TestIntegration_GapClosure_FixExecution` | `TestScenario_GapClosure_FixOnlyNotFullPhase` | **Covered** |
+| PIPE-01: Wave 1 builds everything with mocks | `TestPipeline_Wave1_ExecutesAllPhases`, `TestPipeline_Wave1_UpdatesState` | `TestPipelineIntegration_DependencyGraph_DeterminesPhaseOrder` | `TestPipelineScenario_FullRun_NoExternalServices`, `TestPipelineScenario_FullRun_WithExternalServices` | **Covered** |
+| PIPE-02: external services detected, mock pattern | `TestMockManager_DetectExternalServices_Stripe`, `TestMockManager_DetectExternalServices_Multiple`, `TestMockManager_DetectExternalServices_NoneFound` | `TestPipelineIntegration_MockRegistry_PopulatesDuringWave1` | `TestPipelineScenario_FullRun_WithExternalServices` | **Covered** |
+| PIPE-03: mock registry tracks all mocked files | `TestMockManager_RegisterAndRetrieve`, `TestMockManager_ValidateMockEntry_Valid`, `TestMockManager_ValidateMockEntry_MissingFiles` | `TestPipelineIntegration_MockRegistry_PopulatesDuringWave1` | `TestPipelineScenario_FullRun_WithExternalServices` | **Covered** |
+| PIPE-04: human checkpoint batches ALL needs | `TestHumanCheckpoint_GenerateReport_WithServices`, `TestHumanCheckpoint_GenerateReport_WithSkippedItems`, `TestHumanCheckpoint_FormatDisplay_FullReport`, `TestHumanCheckpoint_WriteCheckpointFile`, `TestHumanCheckpoint_NeedsCheckpoint_True` | `TestPipelineIntegration_Checkpoint_BatchesServicesAndSkipped` | `TestPipelineScenario_FullRun_WithExternalServices`, `TestPipelineScenario_FullRun_WithSkippedItems` | **Covered** |
+| PIPE-05: Wave 2 swaps mocks using registry | `TestPipeline_Wave2_SwapsMocks`, `TestMockManager_BuildSwapPrompt` | `TestPipelineIntegration_MockRegistry_SwapPromptUsesRegistry` | `TestPipelineScenario_FullRun_WithExternalServices` | **Covered** |
+| PIPE-06: Wave 2 addresses skipped items | `TestPipeline_Wave2_AddressesSkippedItems` | `TestPipelineIntegration_Checkpoint_ResumeLoadsCredentials` | `TestPipelineScenario_FullRun_WithSkippedItems` | **Covered** |
+| PIPE-07: Wave 3+ spec compliance loop | `TestSpecCompliance_Loop_AllPass_Round1`, `TestSpecCompliance_Loop_ConvergesRound2`, `TestSpecCompliance_VerifyRequirement_Passes` | `TestPipelineIntegration_Compliance_UpdatesStatePerRound` | `TestPipelineScenario_FullRun_NoExternalServices` | **Covered** |
+| PIPE-08: convergence checking | `TestSpecCompliance_CheckConvergence_Improving`, `TestSpecCompliance_CheckConvergence_Stuck`, `TestSpecCompliance_CheckConvergence_Worsening`, `TestSpecCompliance_Loop_NotConverging` | `TestPipelineIntegration_Compliance_StopsOnNonConvergence` | `TestPipelineScenario_ComplianceNotConverging` | **Covered** |
+| PIPE-09: UAT as final gate | `TestPipeline_UAT_RunsAfterCompliance` | `TestPipelineIntegration_WaveTransitions_StatusUpdated` | `TestPipelineScenario_FullRun_NoExternalServices` | **Covered** |
+| PIPE-10: milestone audit + complete | `TestPipeline_Milestone_RunsAfterUAT`, `TestPipeline_FullSuccess` | `TestPipelineIntegration_WaveTransitions_StatusUpdated` | `TestPipelineScenario_FullRun_NoExternalServices` | **Covered** |
+| PIPE-11: dependency graph (topological sort) | `TestDependencyGraph_LinearChain`, `TestDependencyGraph_ParallelPhases`, `TestDependencyGraph_ComplexGraph`, `TestDependencyGraph_CircularDependencyThrows`, `TestDependencyGraph_ParseRoadmapPhases` | `TestPipelineIntegration_DependencyGraph_DeterminesPhaseOrder`, `TestPipelineIntegration_DependencyGraph_ParallelPhasesInSameWave` | `TestPipelineScenario_FullRun_NoExternalServices` | **Covered** |
+| MOCK-01: 4-file pattern with FORGE:MOCK tag | `TestMockManager_BuildMockInstructions`, `TestMockManager_BuildMockInstructions_SameInterface` | `TestPipelineIntegration_MockRegistry_PopulatesDuringWave1` | `TestPipelineScenario_FullRun_WithExternalServices` | **Covered** |
+| MOCK-02: mock registry in state | `TestMockManager_RegisterAndRetrieve` | `TestPipelineIntegration_MockRegistry_PopulatesDuringWave1` | `TestPipelineScenario_FullRun_WithExternalServices` | **Covered** |
+| MOCK-03: Wave 2 uses registry to swap | `TestMockManager_BuildSwapPrompt`, `TestPipeline_Wave2_SwapsMocks` | `TestPipelineIntegration_MockRegistry_SwapPromptUsesRegistry` | `TestPipelineScenario_FullRun_WithExternalServices` | **Covered** |
+| MOCK-04: mock and real satisfy same TS interface | `TestMockManager_BuildMockInstructions_SameInterface` | `TestPipelineIntegration_MockRegistry_PopulatesDuringWave1` | `TestPipelineScenario_AllRequirementsCovered` | **Covered** |
+| CLI-01: forge init starts requirements gathering | `TestCli_InitCommand_CreatesState` | `TestIntegration_CliWiring_InitRegistered` | `TestScenario_ForgeInit_CreatesProjectFiles` | **Covered** |
+| CLI-02: forge run executes full wave model | `TestCli_RunCommand_DelegatesToPipeline` | `TestIntegration_CliWiring_RunRegistered` | `TestScenario_ForgeRun_CompletedPipeline`, `TestScenario_ForgeRun_CheckpointPause` | **Covered** |
+| CLI-03: forge phase N runs single phase | `TestCli_PhaseCommand_DelegatesToPhaseRunner` | `TestIntegration_CliWiring_PhaseRegistered` | `TestScenario_ForgePhase_SinglePhaseExecution` | **Covered** |
+| CLI-04: forge status displays project state | `TestStatus_FormatStatus_AllSections`, `TestStatus_FormatPhaseTable_SortsNumerically`, `TestStatus_FormatServicesNeeded`, `TestStatus_FormatSkippedItems`, `TestStatus_FormatSpecCompliance` | `TestIntegration_StatusDisplay_FullyPopulated`, `TestIntegration_StatusDisplay_MinimalState`, `TestIntegration_StatusDisplay_PhaseTableSortOrder`, `TestIntegration_StatusDisplay_BudgetAlignment` | `TestScenario_ForgeStatus_RichState`, `TestScenario_ForgeStatus_EmptyProject` | **Covered** |
+| CLI-05: forge resume continues from checkpoint | `TestCli_ResumeCommand_RequiresEnv`, `TestCli_ResumeCommand_LoadsCredentials` | `TestIntegration_CliWiring_ResumeWithoutEnvErrors` | `TestScenario_ForgeResume_WithCredentialsAndGuidance` | **Covered** |
+| COST-05: budget breakdown displayed | `TestStatus_FormatBudgetBreakdown_PerPhase`, `TestStatus_FormatBudgetBreakdown_Alignment` | `TestIntegration_StatusDisplay_BudgetAlignment` | `TestScenario_ForgeStatus_BudgetBreakdown` | **Covered** |
+| GIT-01: atomic commits with requirement IDs | `TestGit_CommitWithReqId_FormatsCorrectly`, `TestGit_CommitWithReqId_IncludesPhaseInBody`, `TestGit_CommitWithReqId_MultipleReqIds` | `TestIntegration_GitWorkflow_FullLifecycle`, `TestIntegration_GitWorkflow_CommitGrepParseable` | `TestScenario_GitLifecycle_CommitWithReqIds` | **Covered** |
+| GIT-02: phase branches from main | `TestGit_CreatePhaseBranch_CreatesAndSwitches`, `TestGit_CreatePhaseBranch_Idempotent`, `TestGit_BranchExists` | `TestIntegration_GitWorkflow_BranchExists`, `TestIntegration_GitWorkflow_MergePhaseBranchError` | `TestScenario_GitLifecycle_BranchProtection` | **Covered** |
+| GIT-03: merge after verification | `TestGit_MergePhaseBranch_MergesAndDeletes`, `TestGit_GetCurrentBranch`, `TestGit_HasUncommittedChanges` | `TestIntegration_GitWorkflow_FullLifecycle`, `TestIntegration_GitWorkflow_BranchDeletedAfterMerge` | `TestScenario_GitLifecycle_PhaseWorkflow` | **Covered** |
+| TEST-01: testing methodology injection | `TestTraceability_InjectMethodology_AppendsToClaudeMd`, `TestTraceability_InjectMethodology_Idempotent`, `TestTraceability_GenerateMethodologyBlock` | `TestIntegration_MethodologyInjection_EmptyFile`, `TestIntegration_MethodologyInjection_ExistingContent`, `TestIntegration_MethodologyInjection_DoubleIdempotent` | `TestScenario_ForgeInit_InjectsMethodology` | **Covered** |
+| TEST-02: TEST_GUIDE.md creation | `TestTraceability_CreateTestGuide_CorrectFormat`, `TestTraceability_CreateTestGuide_AllRequirements` | `TestIntegration_TestGuideLifecycle_CreateAndParse` | `TestScenario_TestGuide_Creation` | **Covered** |
+| TEST-03: TEST_GUIDE.md update after phase | `TestTraceability_UpdateTestGuide_AppendsTests`, `TestTraceability_UpdateTestGuide_Idempotent` | `TestIntegration_TestGuideLifecycle_UpdateAccumulates` | `TestScenario_TestGuide_UpdateAfterPhase` | **Covered** |
+| TEST-04: requirement-to-test coverage verification | `TestTraceability_VerifyTestCoverage_FullyCovered`, `TestTraceability_VerifyTestCoverage_MissingTiers`, `TestTraceability_VerifyTestCoverage_Uncovered` | `TestIntegration_TestGuideLifecycle_VerifyCoverage` | `TestScenario_TestGuide_CoverageVerification` | **Covered** |
+| TEST-05: test pyramid enforcement | `TestTraceability_EnforceTestPyramid_Passes`, `TestTraceability_EnforceTestPyramid_InvertedFails`, `TestTraceability_EnforceTestPyramid_NoIncreaseFails` | `TestIntegration_PyramidEnforcement_Shape`, `TestIntegration_PyramidEnforcement_CountIncrease` | `TestScenario_TestGuide_PyramidEnforcement` | **Covered** |
+| REQ-01: forge init gathers across 8 categories | `TestBuildRequirementsPrompt_Covers8Categories`, `TestBuildRequirementsPrompt_Includes25Topics`, `TestGatherRequirements_CallsExecuteQuery`, `TestGatherRequirements_ParsesAndDetectsCompliance` | `TestIntegration_RequirementsGathering_FullLifecycle`, `TestIntegration_RequirementsGathering_PromptCovers8Categories` | `TestScenario_ForgeInit_GathersRequirements`, `TestScenario_RequirementsGathering_FullFlow` | **Covered** |
+| REQ-02: structured R1/R2 format | `TestParseRequirementsOutput_StructuredFormat`, `TestParseRequirementsOutput_AllFields`, `TestParseRequirementsOutput_MultipleRequirements` | `TestIntegration_RequirementsGathering_StructuredOutput` | `TestScenario_RequirementsGathering_StructuredFormat` | **Covered** |
+| REQ-03: REQUIREMENTS.md with numbered format | `TestFormatRequirementsDoc_NumberedR1R2`, `TestFormatRequirementsDoc_AllSections`, `TestFormatRequirementsDoc_ComplianceSection` | `TestIntegration_RequirementsGathering_WritesFile` | `TestScenario_RequirementsGathering_FullFlow` | **Covered** |
+| REQ-04: compliance flags drive requirements | `TestDetectComplianceFlags_SOC2`, `TestDetectComplianceFlags_HIPAA`, `TestDetectComplianceFlags_GDPR`, `TestDetectComplianceFlags_PCIDSS`, `TestDetectComplianceFlags_WCAG`, `TestDetectComplianceFlags_Multiple`, `TestDetectComplianceFlags_None` | `TestIntegration_RequirementsGathering_ComplianceDetection` | `TestScenario_RequirementsCompliance_DriveBuild` | **Covered** |
+| DOC-01: 8 mandatory Notion pages during init | `TestCreateDocPages_Creates8Pages`, `TestCreateDocPages_ReturnsPageIds`, `TestCreateDocPages_AllMandatoryPages` | `TestIntegration_NotionLifecycle_PageCreation`, `TestIntegration_NotionLifecycle_8Pages` | `TestScenario_NotionLifecycle_InitCreatesPages` | **Covered** |
+| DOC-02: pages updated per phase | `TestBuildPageUpdatePrompt_Architecture`, `TestBuildPageUpdatePrompt_DataFlow`, `TestBuildPageUpdatePrompt_ApiRef`, `TestBuildPageUpdatePrompt_ComponentIndex`, `TestBuildPageUpdatePrompt_DevWorkflow` | `TestIntegration_NotionLifecycle_PerPhaseUpdates` | `TestScenario_NotionLifecycle_PerPhaseUpdates` | **Covered** |
+| DOC-03: phase reports include goals, tests, arch, issues, budget | `TestCreatePhaseReport_AllFields`, `TestCreatePhaseReport_GoalsTestsArch`, `TestCreatePhaseReport_IssuesBudget` | `TestIntegration_NotionLifecycle_PhaseReport` | `TestScenario_NotionLifecycle_PhaseReport` | **Covered** |
+| DOC-04: final milestone docs published | `TestPublishFinalDocs_UpdatesAllPages`, `TestPublishFinalDocs_MilestoneSummary`, `TestPublishFinalDocs_CompletionReport` | `TestIntegration_NotionLifecycle_FinalDocs` | `TestScenario_NotionLifecycle_FinalMilestone` | **Covered** |
+| UAT-01: full app spun up via Docker | `TestStartApplication_DockerCompose`, `TestStopApplication_DockerDown`, `TestWaitForHealth_Success`, `TestWaitForHealth_Timeout` | `TestIntegration_UAT_DockerLifecycle`, `TestIntegration_UAT_HealthCheck` | `TestScenario_UAT_PassingWorkflows`, `TestScenario_UAT_FullPipelineWithUAT` | **Covered** |
+| UAT-02: every user workflow tested e2e | `TestExtractUserWorkflows_ParsesAcceptanceCriteria`, `TestExtractUserWorkflows_MultipleRequirements`, `TestRunUAT_TestsAllWorkflows` | `TestIntegration_UAT_WorkflowExtraction` | `TestScenario_UAT_PassingWorkflows` | **Covered** |
+| UAT-03: web via browser, APIs via HTTP, CLIs via shell | `TestDetectAppType_Web`, `TestDetectAppType_Api`, `TestDetectAppType_Cli`, `TestBuildUATPrompt_WebStrategy`, `TestBuildUATPrompt_ApiStrategy`, `TestBuildUATPrompt_CliStrategy` | `TestIntegration_UAT_AppTypeDetection` | `TestScenario_UAT_AppTypeStrategies` | **Covered** |
+| UAT-04: safety guardrails | `TestBuildSafetyPrompt_SandboxCredentials`, `TestBuildSafetyPrompt_LocalSMTP`, `TestBuildSafetyPrompt_TestDB`, `TestBuildSafetyPrompt_MockOAuth` | `TestIntegration_UAT_SafetyEnforcement` | `TestScenario_UAT_SafetyGuardrails` | **Covered** |
+| UAT-05: failure triggers gap closure retry | `TestRunUATGapClosure_ProducesFixPlan`, `TestRunUAT_RetriesOnFailure`, `TestRunUAT_MaxRetriesExhausted` | `TestIntegration_UAT_GapClosureLoop` | `TestScenario_UAT_FailureRetry` | **Covered** |
+| UAT-06: UAT is final gate | `TestRunUAT_ReturnsPass`, `TestRunUAT_ReturnsFail`, `TestRunUAT_ReturnsStuck`, `TestRunUAT_FinalGateResult` | `TestIntegration_UAT_FinalGateStatus` | `TestScenario_UAT_FinalGate`, `TestScenario_UAT_FullPipelineWithUAT` | **Covered** |
 
 ## Phase Coverage Log
 
@@ -76,3 +147,69 @@ Requirements covered: SDK-01, SDK-02, SDK-03, SDK-04, SDK-05 (all 5/5)
 | **Total** | **49** | **49** | **0** |
 
 Requirements covered: CFG-01, CFG-02, CFG-03, STA-01, STA-02, STA-03, STA-04, STA-05 (all 8/8)
+
+### Phase 3: Step Runner + Cost Controller (2026-03-05)
+
+| Tier | Tests | Passed | Failed |
+|---|---|---|---|
+| Unit | 39 | 39 | 0 |
+| Integration | 4 | 4 | 0 |
+| Scenario | 4 | 4 | 0 |
+| **Total** | **47** | **47** | **0** |
+
+Requirements covered: STEP-01, STEP-02, STEP-03, STEP-04, STEP-05, STEP-06, COST-01, COST-02, COST-03, COST-04 (all 10/10)
+
+### Phase 4: Programmatic Verifiers (2026-03-05)
+
+| Tier | Tests | Passed | Failed |
+|---|---|---|---|
+| Unit | 67 | 67 | 0 |
+| Integration | 5 | 5 | 0 |
+| Scenario | 5 | 5 | 0 |
+| **Total** | **77** | **77** | **0** |
+
+Requirements covered: VER-01, VER-02, VER-03, VER-04, VER-05, VER-06, VER-07, VER-08, VER-09 (all 9/9)
+
+### Phase 5: Phase Runner + Plan Verification + Gap Closure (2026-03-05)
+
+| Tier | Tests | Passed | Failed |
+|---|---|---|---|
+| Unit | 47 | 47 | 0 |
+| Integration | 10 | 10 | 0 |
+| Scenario | 9 | 9 | 0 |
+| **Total** | **66** | **66** | **0** |
+
+Requirements covered: PHA-01, PHA-02, PHA-03, PHA-04, PHA-05, PHA-06, PHA-07, PHA-08, PHA-09, PHA-10, PHA-11, PHA-12, GAP-01, GAP-02, GAP-03 (all 15/15)
+
+### Phase 6: Pipeline Controller (Wave Model) (2026-03-05)
+
+| Tier | Tests | Passed | Failed |
+|---|---|---|---|
+| Unit | 97 | 97 | 0 |
+| Integration | 13 | 13 | 0 |
+| Scenario | 9 | 9 | 0 |
+| **Total** | **119** | **119** | **0** |
+
+Requirements covered: PIPE-01, PIPE-02, PIPE-03, PIPE-04, PIPE-05, PIPE-06, PIPE-07, PIPE-08, PIPE-09, PIPE-10, PIPE-11, MOCK-01, MOCK-02, MOCK-03, MOCK-04 (all 15/15)
+
+### Phase 7: CLI + Git + Testing Infrastructure (2026-03-05)
+
+| Tier | Tests | Passed | Failed |
+|---|---|---|---|
+| Unit | 70 | 70 | 0 |
+| Integration | 21 | 21 | 0 |
+| Scenario | 12 | 12 | 0 |
+| **Total** | **103** | **103** | **0** |
+
+Requirements covered: CLI-01, CLI-02, CLI-03, CLI-04, CLI-05, COST-05, GIT-01, GIT-02, GIT-03, TEST-01, TEST-02, TEST-03, TEST-04, TEST-05 (all 14/14)
+
+### Phase 8: Enhancement Layer (2026-03-05)
+
+| Tier | Tests | Passed | Failed |
+|---|---|---|---|
+| Unit | 146 | 146 | 0 |
+| Integration | 16 | 16 | 0 |
+| Scenario | 11 | 11 | 0 |
+| **Total** | **173** | **173** | **0** |
+
+Requirements covered: REQ-01, REQ-02, REQ-03, REQ-04, DOC-01, DOC-02, DOC-03, DOC-04, UAT-01, UAT-02, UAT-03, UAT-04, UAT-05, UAT-06 (all 14/14)
