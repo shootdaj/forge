@@ -28,11 +28,14 @@ const TestingConfigSchema = z.object({
  * Controls which programmatic verifiers run after each step.
  */
 const VerificationConfigSchema = z.object({
+  files: z.boolean().default(true),
+  tests: z.boolean().default(true),
   typecheck: z.boolean().default(true),
   lint: z.boolean().default(true),
-  docker_smoke: z.boolean().default(true),
+  docker_smoke: z.boolean().default(false),
   test_coverage_check: z.boolean().default(true),
-  observability_check: z.boolean().default(true),
+  observability_check: z.boolean().default(false),
+  deployment: z.boolean().default(false),
 });
 
 /**
@@ -131,11 +134,14 @@ export interface ForgeConfig {
     dockerComposeFile: string;
   };
   verification: {
+    files: boolean;
+    tests: boolean;
     typecheck: boolean;
     lint: boolean;
     dockerSmoke: boolean;
     testCoverageCheck: boolean;
     observabilityCheck: boolean;
+    deployment: boolean;
   };
   notion: {
     parentPageId: string;

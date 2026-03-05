@@ -109,11 +109,14 @@ describe("Config Module", () => {
           docker_compose_file: "docker-compose.ci.yml",
         },
         verification: {
+          files: true,
+          tests: false,
           typecheck: false,
           lint: true,
           docker_smoke: false,
           test_coverage_check: true,
           observability_check: false,
+          deployment: true,
         },
         notion: {
           parent_page_id: "abc-123",
@@ -167,11 +170,14 @@ describe("Config Module", () => {
       expect(config.testing.dockerComposeFile).toBe("docker-compose.ci.yml");
 
       // Verification
+      expect(config.verification.files).toBe(true);
+      expect(config.verification.tests).toBe(false);
       expect(config.verification.typecheck).toBe(false);
       expect(config.verification.lint).toBe(true);
       expect(config.verification.dockerSmoke).toBe(false);
       expect(config.verification.testCoverageCheck).toBe(true);
       expect(config.verification.observabilityCheck).toBe(false);
+      expect(config.verification.deployment).toBe(true);
 
       // Notion
       expect(config.notion.parentPageId).toBe("abc-123");
