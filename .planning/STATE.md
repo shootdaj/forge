@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in_progress
-last_updated: "2026-03-05T14:40:14.000Z"
+last_updated: "2026-03-05T14:50:14.000Z"
 progress:
   total_phases: 8
   completed_phases: 2
   total_plans: 4
-  completed_plans: 4
+  completed_plans: 5
 ---
 
 # Project State
@@ -18,23 +18,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Every step verified by code, not agent self-report. Forge maximizes autonomous progress.
-**Current focus:** Phase 6 in progress. Plan 01 complete (types, dependency graph, mock manager). 3 plans remaining.
+**Current focus:** Phase 6 in progress. Plans 01-02 complete (types, dependency graph, mock manager, checkpoint, compliance, prompts). 2 plans remaining.
 
 ## Current Position
 
 Phase: 6 of 8 (Pipeline Controller) -- IN PROGRESS
-Plan: 1 of 4 in current phase (06-01 complete)
-Status: Plan 06-01 complete (32 tests, 6 files). Dependency graph + mock manager ready. Plans 02-04 remaining.
-Last activity: 2026-03-05 -- Plan 06-01 complete (pipeline types, dependency graph with topological sort, mock manager)
+Plan: 2 of 4 in current phase (06-01, 06-02 complete)
+Status: Plan 06-02 complete (35 tests, 7 files). Human checkpoint + spec compliance + prompts ready. Plans 03-04 remaining.
+Last activity: 2026-03-05 -- Plan 06-02 complete (human checkpoint, spec compliance loop, prompt builders)
 
 Progress: [████████░░] 75%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
+- Total plans completed: 8
 - Average duration: ~5 min
-- Total execution time: 6 sessions
+- Total execution time: 7 sessions
 
 **By Phase:**
 
@@ -43,10 +43,10 @@ Progress: [████████░░] 75%
 | Phase 1: SDK POC | 1 | 63 tests | N/A |
 | Phase 4: Verifiers | 2 | 67 tests, 24 files | ~5 min |
 | Phase 5: Phase Runner | 3/3 | 66 tests, 20 files | ~5 min |
-| Phase 6: Pipeline Controller | 1/4 | 32 tests, 6 files | ~5 min |
+| Phase 6: Pipeline Controller | 2/4 | 67 tests, 13 files | ~5 min |
 
 **Recent Trend:**
-- Last 7 plans: Phase 1 complete, Phase 4 Plan 1 complete, Phase 4 Plan 2 complete, Phase 5 Plan 1 complete, Phase 5 Plan 2 complete, Phase 5 Plan 3 complete, Phase 6 Plan 1 complete
+- Last 8 plans: Phase 1 complete, Phase 4 Plan 1 complete, Phase 4 Plan 2 complete, Phase 5 Plan 1 complete, Phase 5 Plan 2 complete, Phase 5 Plan 3 complete, Phase 6 Plan 1 complete, Phase 6 Plan 2 complete
 - Trend: On track
 
 *Updated after each plan completion*
@@ -83,6 +83,12 @@ Recent decisions affecting current work:
 - [06-01]: 12 known service patterns with keyword matching for external service detection (extensible array)
 - [06-01]: MockManager uses StateManager.update() for registry persistence -- same crash-safe pattern as all state mutations
 - [06-01]: buildMockInstructions generates prompt text (string), not structured data -- consumed as prompt appendix by phase runner
+- [06-02]: Checkpoint display uses plain text formatting (no Unicode box drawing) for terminal compatibility
+- [06-02]: Env file parser handles single/double quoted values and strips surrounding quotes
+- [06-02]: Guidance file parsed by ## RequirementID headers into Record<string, string>
+- [06-02]: First compliance round always proceeds (converging vs baseline) -- convergence check only applies from round 2+
+- [06-02]: State update failures in compliance loop caught and silenced -- non-critical for loop progress
+- [06-02]: verifyRequirement uses outputSchema for structured { passed, gapDescription } extraction
 
 ### Pending Todos
 
@@ -97,5 +103,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-05
-Stopped at: Completed 06-01-PLAN.md (pipeline types, dependency graph, mock manager). 32 tests, 6 files. Phase 6 Plan 1/4 done.
+Stopped at: Completed 06-02-PLAN.md (human checkpoint, spec compliance loop, prompt builders). 35 tests, 7 files. Phase 6 Plan 2/4 done.
 Resume file: None

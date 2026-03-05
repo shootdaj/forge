@@ -70,11 +70,11 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **PIPE-01**: Wave 1 builds everything possible — GSD new-project, scaffolding, all phases with mocks
 - [x] **PIPE-02**: External services detected from phase descriptions and built with mock pattern (interface/mock/real/factory)
 - [x] **PIPE-03**: Mock registry tracks all mocked files precisely for systematic swap
-- [ ] **PIPE-04**: Human checkpoint batches ALL needs: services + skipped items + deferred ideas in ONE interruption
+- [x] **PIPE-04**: Human checkpoint batches ALL needs: services + skipped items + deferred ideas in ONE interruption
 - [ ] **PIPE-05**: Wave 2 swaps mocks for real implementations using mock registry, runs integration tests
 - [ ] **PIPE-06**: Wave 2 addresses skipped items with user guidance
-- [ ] **PIPE-07**: Wave 3+ runs spec compliance loop: verify every requirement, fix gaps, converge
-- [ ] **PIPE-08**: Spec compliance checks convergence — gaps must decrease each round; stops if not converging
+- [x] **PIPE-07**: Wave 3+ runs spec compliance loop: verify every requirement, fix gaps, converge
+- [x] **PIPE-08**: Spec compliance checks convergence — gaps must decrease each round; stops if not converging
 - [ ] **PIPE-09**: After spec compliance, runs UAT as final gate
 - [ ] **PIPE-10**: After UAT passes, runs gsd:audit-milestone and gsd:complete-milestone
 - [x] **PIPE-11**: Dependency graph built from roadmap for phase ordering (topological sort)
@@ -233,11 +233,11 @@ Requirements for initial release. Each maps to roadmap phases.
 | PIPE-01 | Phase 6 | Pending |
 | PIPE-02 | Phase 6 | Complete |
 | PIPE-03 | Phase 6 | Complete |
-| PIPE-04 | Phase 6 | Pending |
+| PIPE-04 | Phase 6 | Complete |
 | PIPE-05 | Phase 6 | Pending |
 | PIPE-06 | Phase 6 | Pending |
-| PIPE-07 | Phase 6 | Pending |
-| PIPE-08 | Phase 6 | Pending |
+| PIPE-07 | Phase 6 | Complete |
+| PIPE-08 | Phase 6 | Complete |
 | PIPE-09 | Phase 6 | Pending |
 | PIPE-10 | Phase 6 | Pending |
 | PIPE-11 | Phase 6 | Complete |

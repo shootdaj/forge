@@ -116,7 +116,7 @@ Plans:
 
 Plans:
 - [x] 06-01-PLAN.md -- Pipeline types, dependency graph (topological sort), and mock manager
-- [ ] 06-02-PLAN.md -- Human checkpoint, spec compliance loop, and prompt builders
+- [x] 06-02-PLAN.md -- Human checkpoint, spec compliance loop, and prompt builders
 - [ ] 06-03-PLAN.md -- Pipeline controller FSM (main runPipeline orchestrator)
 - [ ] 06-04-PLAN.md -- Integration and scenario tests (full requirement coverage)
 
@@ -166,6 +166,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 3. Step Runner + Cost Controller | 1/1 | Completed | 2026-03-05 |
 | 4. Programmatic Verifiers | 2/2 | Completed | 2026-03-05 |
 | 5. Phase Runner + Plan Verification + Gap Closure | 3/3 | Complete   | 2026-03-05 |
-| 6. Pipeline Controller (Wave Model) | 1/4 | In progress | - |
+| 6. Pipeline Controller (Wave Model) | 2/4 | In progress | - |
 | 7. CLI + Git + Testing Infrastructure | 0/? | Not started | - |
 | 8. Enhancement Layer | 0/? | Not started | - |
