@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
-last_updated: "2026-03-05T13:32:47.439Z"
+status: in_progress
+last_updated: "2026-03-05T13:55:47.000Z"
 progress:
-  total_phases: 4
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_phases: 8
+  completed_phases: 2
+  total_plans: 3
+  completed_plans: 1
 ---
 
 # Project State
@@ -18,23 +18,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Every step verified by code, not agent self-report. Forge maximizes autonomous progress.
-**Current focus:** Phase 4 complete. Next: Phase 5 (Phase Runner)
+**Current focus:** Phase 5 in progress. Plan 01 complete, Plans 02-03 remaining.
 
 ## Current Position
 
-Phase: 4 of 8 (Programmatic Verifiers) -- COMPLETE
-Plan: 2 of 2 in current phase (all complete)
-Status: Phase 4 complete, ready for Phase 5 (Phase Runner)
-Last activity: 2026-03-05 — Plan 04-02 complete (verifier registry, 26 new tests, 226 total)
+Phase: 5 of 8 (Phase Runner)
+Plan: 1 of 3 in current phase (05-01 complete)
+Status: Phase 5 in progress, Plan 01 complete (types, checkpoints, plan verification)
+Last activity: 2026-03-05 -- Plan 05-01 complete (32 new tests, types + checkpoint + plan verification)
 
-Progress: [█████░░░░░] 50%
+Progress: [██████░░░░] 55%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
+- Total plans completed: 4
 - Average duration: ~5 min
-- Total execution time: 3 sessions
+- Total execution time: 4 sessions
 
 **By Phase:**
 
@@ -42,9 +42,10 @@ Progress: [█████░░░░░] 50%
 |-------|-------|-------|----------|
 | Phase 1: SDK POC | 1 | 63 tests | N/A |
 | Phase 4: Verifiers | 2 | 67 tests, 24 files | ~5 min |
+| Phase 5: Phase Runner | 1/3 | 32 tests, 5 files | ~5 min |
 
 **Recent Trend:**
-- Last 5 plans: Phase 1 complete, Phase 4 Plan 1 complete, Phase 4 Plan 2 complete
+- Last 5 plans: Phase 1 complete, Phase 4 Plan 1 complete, Phase 4 Plan 2 complete, Phase 5 Plan 1 complete
 - Trend: On track
 
 *Updated after each plan completion*
@@ -65,6 +66,10 @@ Recent decisions affecting current work:
 - [04-02]: Skipped results detected by details[0].startsWith('Skipped:') — consistent with skippedResult() helper
 - [04-02]: Config-to-registry mapping uses explicit Record<string,string> for clarity over dynamic key transformation
 - [04-02]: Docker gating uses try/catch for consistency with Promise.allSettled error handling
+- [05-01]: Checkpoint files serve as both output artifacts and resume markers -- no separate state tracking
+- [05-01]: verify-plan substep is implicit when planDone is true
+- [05-01]: Plan verification uses case-insensitive regex with Set-based dedup for requirement ID extraction
+- [05-01]: Test task injection targets </tasks> closing tag with FORGE:INJECTED_TEST_TASKS marker
 
 ### Pending Todos
 
@@ -79,5 +84,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-05
-Stopped at: Completed 04-02-PLAN.md (verifier registry with 26 new tests, 226 total). Phase 4 complete. Ready for Phase 5 (Phase Runner).
+Stopped at: Completed 05-01-PLAN.md (phase runner types, checkpoints, plan verification with 32 tests). Phase 5 Plan 1 of 3 complete.
 Resume file: None

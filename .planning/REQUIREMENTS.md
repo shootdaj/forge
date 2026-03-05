@@ -55,15 +55,15 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **PHA-01**: Phase runner executes full cycle: context -> plan -> verify plan -> execute -> test -> gap closure -> docs
 - [ ] **PHA-02**: Context gathering detects gray areas, locks decisions in CONTEXT.md, captures deferred ideas
 - [ ] **PHA-03**: Plan creation via GSD plan-phase, produces PLAN.md
-- [ ] **PHA-04**: Plan verification checks requirement coverage, test task presence, execution order, success criteria, no scope creep
-- [ ] **PHA-05**: Missing test tasks are injected into plan automatically (deterministic code edit)
-- [ ] **PHA-06**: Missing requirement coverage triggers re-planning with specific feedback
+- [x] **PHA-04**: Plan verification checks requirement coverage, test task presence, execution order, success criteria, no scope creep
+- [x] **PHA-05**: Missing test tasks are injected into plan automatically (deterministic code edit)
+- [x] **PHA-06**: Missing requirement coverage triggers re-planning with specific feedback
 - [ ] **PHA-07**: Execution runs with mock instructions for external services + failure cascade
 - [ ] **PHA-08**: After execution, all programmatic verifiers run
 - [ ] **PHA-09**: Test failures trigger root cause diagnosis -> targeted fix plan -> execute fix (not blind retry)
 - [ ] **PHA-10**: Test coverage gaps trigger gsd:add-tests to generate missing tests
-- [ ] **PHA-11**: Phase creates file-based checkpoints (CONTEXT.md, PLAN.md, VERIFICATION.md, PHASE_REPORT.md, GAPS.md)
-- [ ] **PHA-12**: Phase runner resumes from last checkpoint on restart (skip completed substeps)
+- [x] **PHA-11**: Phase creates file-based checkpoints (CONTEXT.md, PLAN.md, VERIFICATION.md, PHASE_REPORT.md, GAPS.md)
+- [x] **PHA-12**: Phase runner resumes from last checkpoint on restart (skip completed substeps)
 
 ### Pipeline Controller (Wave Model)
 
@@ -206,27 +206,27 @@ Requirements for initial release. Each maps to roadmap phases.
 | COST-02 | Phase 3 | **Delivered** |
 | COST-03 | Phase 3 | **Delivered** |
 | COST-04 | Phase 3 | **Delivered** |
-| VER-01 | Phase 4 | Complete |
-| VER-02 | Phase 4 | Complete |
-| VER-03 | Phase 4 | Complete |
-| VER-04 | Phase 4 | Complete |
-| VER-05 | Phase 4 | Complete |
-| VER-06 | Phase 4 | Complete |
-| VER-07 | Phase 4 | Complete |
-| VER-08 | Phase 4 | Complete |
-| VER-09 | Phase 4 | Complete |
+| VER-01 | Phase 4 | **Delivered** |
+| VER-02 | Phase 4 | **Delivered** |
+| VER-03 | Phase 4 | **Delivered** |
+| VER-04 | Phase 4 | **Delivered** |
+| VER-05 | Phase 4 | **Delivered** |
+| VER-06 | Phase 4 | **Delivered** |
+| VER-07 | Phase 4 | **Delivered** |
+| VER-08 | Phase 4 | **Delivered** |
+| VER-09 | Phase 4 | **Delivered** |
 | PHA-01 | Phase 5 | Pending |
 | PHA-02 | Phase 5 | Pending |
 | PHA-03 | Phase 5 | Pending |
-| PHA-04 | Phase 5 | Pending |
-| PHA-05 | Phase 5 | Pending |
-| PHA-06 | Phase 5 | Pending |
+| PHA-04 | Phase 5 | Complete |
+| PHA-05 | Phase 5 | Complete |
+| PHA-06 | Phase 5 | Complete |
 | PHA-07 | Phase 5 | Pending |
 | PHA-08 | Phase 5 | Pending |
 | PHA-09 | Phase 5 | Pending |
 | PHA-10 | Phase 5 | Pending |
-| PHA-11 | Phase 5 | Pending |
-| PHA-12 | Phase 5 | Pending |
+| PHA-11 | Phase 5 | Complete |
+| PHA-12 | Phase 5 | Complete |
 | GAP-01 | Phase 5 | Pending |
 | GAP-02 | Phase 5 | Pending |
 | GAP-03 | Phase 5 | Pending |
