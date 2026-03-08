@@ -189,6 +189,27 @@ describe("parsePlanRequirements", () => {
     expect(ids.length).toBe(5);
   });
 
+  it("TestPlanVerification_ParseRequirements_ShortFormat", () => {
+    const content = `---
+requirement_ids: [R1, R14, R15]
+---
+This plan covers R1 and R14 and R15.
+`;
+    const ids = parsePlanRequirements(content, ["R1", "R14", "R15"]);
+
+    expect(ids).toContain("R1");
+    expect(ids).toContain("R14");
+    expect(ids).toContain("R15");
+  });
+
+  it("TestPlanVerification_ParseRequirements_KnownIdsLiteralMatch", () => {
+    const content = "This plan addresses requirement R21 for internationalization.";
+    const ids = parsePlanRequirements(content, ["R21", "R22"]);
+
+    expect(ids).toContain("R21");
+    expect(ids).not.toContain("R22");
+  });
+
   it("TestPlanVerification_ParseRequirements_Deduplicates", () => {
     const content = `
       PHA-01 appears here.
@@ -276,6 +297,35 @@ describe("verifyPlanCoverage", () => {
 
     // Tasks 1, 2, 3 are sequential
     expect(result.executionOrderValid).toBe(true);
+  });
+
+  it("TestPlanVerification_VerifyCoverage_ShortIdFormat", () => {
+    const content = `---
+requirement_ids: [R1, R14, R15, R16]
+---
+
+### 1. Project Scaffolding
+**Requirements:** R1, R16
+Scaffold the project. Write tests.
+
+### 2. Auth Setup
+**Requirements:** R14, R15
+Set up OAuth. Write tests.
+
+<success_criteria>All done</success_criteria>
+`;
+    const result = verifyPlanCoverage(content, ["R1", "R14", "R15", "R16"]);
+
+    expect(result.passed).toBe(true);
+    expect(result.missingRequirements).toEqual([]);
+    expect(result.coveredRequirements).toEqual(
+      expect.arrayContaining(["R1", "R14", "R15", "R16"]),
+    );
+  });
+
+  it("TestPlanVerification_VerifyCoverage_EmptyRequirements_Passes", () => {
+    const result = verifyPlanCoverage("Some plan content", []);
+    expect(result.passed).toBe(true);
   });
 
   it("TestPlanVerification_VerifyCoverage_ExecutionOrderInvalid", () => {

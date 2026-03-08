@@ -2,10 +2,11 @@
  * Lint Verifier Unit Tests
  *
  * Tests for the lint verifier (VER-04).
- * Mocks execWithTimeout to simulate eslint behavior.
+ * Mocks execWithTimeout and fs to simulate eslint behavior.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import * as fs from "node:fs";
 import type { VerifierConfig } from "./types.js";
 import { getDefaultConfig } from "../config/index.js";
 
@@ -13,10 +14,21 @@ vi.mock("./utils.js", () => ({
   execWithTimeout: vi.fn(),
 }));
 
+vi.mock("node:fs", async () => {
+  const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+  return {
+    ...actual,
+    existsSync: vi.fn(),
+    readFileSync: vi.fn(),
+  };
+});
+
 import { execWithTimeout } from "./utils.js";
 import { lintVerifier } from "./lint.js";
 
 const mockedExec = vi.mocked(execWithTimeout);
+const mockedExistsSync = vi.mocked(fs.existsSync);
+const mockedReadFileSync = vi.mocked(fs.readFileSync);
 
 function makeConfig(overrides: Partial<VerifierConfig> = {}): VerifierConfig {
   return {
@@ -26,9 +38,28 @@ function makeConfig(overrides: Partial<VerifierConfig> = {}): VerifierConfig {
   };
 }
 
+/**
+ * Set up mocks so detectLintCommand finds a lint script in package.json.
+ */
+function mockLintSetup() {
+  mockedExistsSync.mockImplementation((filePath: fs.PathLike) => {
+    const pathStr = String(filePath);
+    if (pathStr.includes("package.json")) return true;
+    return false;
+  });
+  mockedReadFileSync.mockImplementation((filePath: fs.PathOrFileDescriptor) => {
+    const pathStr = String(filePath);
+    if (pathStr.includes("package.json")) {
+      return JSON.stringify({ scripts: { lint: "eslint src/" } });
+    }
+    return "";
+  });
+}
+
 describe("Lint Verifier", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockLintSetup();
   });
 
   afterEach(() => {
@@ -105,6 +136,18 @@ describe("Lint Verifier", () => {
       const result = await lintVerifier(makeConfig());
 
       expect(result.errors.length).toBeLessThanOrEqual(50);
+    });
+  });
+
+  describe("TestLintVerifier_NoLintConfig", () => {
+    it("skips when no lint configuration found", async () => {
+      // No package.json, no eslint configs, no biome
+      mockedExistsSync.mockReturnValue(false);
+
+      const result = await lintVerifier(makeConfig());
+
+      expect(result.passed).toBe(true);
+      expect(result.details[0]).toContain("Skipped");
     });
   });
 });

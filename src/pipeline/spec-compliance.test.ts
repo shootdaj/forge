@@ -116,6 +116,10 @@ function makeConfig(overrides: Partial<ForgeConfig> = {}): ForgeConfig {
 
 /**
  * Create a mock PipelineContext with controllable runStep behavior.
+ *
+ * The mock now handles both batch and individual verification prompts.
+ * Batch prompts contain all requirement IDs; the mock builds a JSON
+ * array response based on the verifyResults map.
  */
 function makeMockContext(options: {
   verifyResults?: Record<string, { passed: boolean; gapDescription: string }>;
@@ -131,23 +135,43 @@ function makeMockContext(options: {
 
   const verifyResults = options.verifyResults ?? {};
 
-  // Round tracking for dynamic verify results
-  let verifyCallCount = 0;
-
   const mockExecuteQuery = async (opts: any): Promise<any> => {
-    // Determine which requirement is being verified by examining prompt
     const prompt = opts.prompt as string;
 
-    // Check if this is a verify step
-    for (const [reqId, result] of Object.entries(verifyResults)) {
-      if (prompt.includes(reqId)) {
-        return {
-          ok: true,
-          result: JSON.stringify(result),
-          structuredOutput: result,
-          cost: { totalCostUsd: 0.01 },
-          sessionId: "mock-session",
-        };
+    // Handle batch verification prompt
+    if (prompt.includes("Verify whether each of the following requirements")) {
+      const verdicts = Object.entries(verifyResults).map(([id, result]) => ({
+        id,
+        ...result,
+      }));
+      // Also include any requirement IDs in the prompt not in verifyResults as passed
+      const allReqIds = prompt.match(/- ([\w-]+)/g)?.map((m: string) => m.slice(2)) ?? [];
+      for (const id of allReqIds) {
+        if (!verifyResults[id]) {
+          verdicts.push({ id, passed: true, gapDescription: "" });
+        }
+      }
+      return {
+        ok: true,
+        result: "```json\n" + JSON.stringify(verdicts) + "\n```",
+        structuredOutput: null,
+        cost: { totalCostUsd: 0.01 },
+        sessionId: "mock-session",
+      };
+    }
+
+    // Handle individual verification prompt (fallback path)
+    if (prompt.includes("Verify whether requirement")) {
+      for (const [reqId, result] of Object.entries(verifyResults)) {
+        if (prompt.includes(reqId)) {
+          return {
+            ok: true,
+            result: JSON.stringify(result),
+            structuredOutput: result,
+            cost: { totalCostUsd: 0.01 },
+            sessionId: "mock-session",
+          };
+        }
       }
     }
 
@@ -322,62 +346,40 @@ describe("runSpecComplianceLoop", () => {
 
     const { ctx } = makeMockContext({});
 
-    // Override executeQueryFn to simulate dynamic behavior
-    let verifyCallCount = 0;
     (ctx.stepRunnerContext as any).executeQueryFn = async (opts: any) => {
       const prompt = opts.prompt as string;
 
-      // Track verify calls
+      // Handle batch verification
+      if (prompt.includes("Verify whether each of the following requirements")) {
+        const verdicts = [
+          { id: "REQ-01", passed: round1Done, gapDescription: round1Done ? "" : "Missing validation" },
+          { id: "REQ-02", passed: true, gapDescription: "" },
+        ];
+        return {
+          ok: true,
+          result: "```json\n" + JSON.stringify(verdicts) + "\n```",
+          structuredOutput: null,
+          cost: { totalCostUsd: 0.01 },
+          sessionId: "mock",
+        };
+      }
+
+      // Handle individual verification (fallback)
       if (prompt.includes("Verify whether requirement")) {
-        verifyCallCount++;
-
-        // REQ-02 always passes
         if (prompt.includes("REQ-02")) {
-          return {
-            ok: true,
-            result: "",
-            structuredOutput: { passed: true, gapDescription: "" },
-            cost: { totalCostUsd: 0.01 },
-            sessionId: "mock",
-          };
+          return { ok: true, result: "", structuredOutput: { passed: true, gapDescription: "" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
         }
-
-        // REQ-01: fails first time, passes after fix
         if (prompt.includes("REQ-01")) {
-          if (!round1Done) {
-            return {
-              ok: true,
-              result: "",
-              structuredOutput: {
-                passed: false,
-                gapDescription: "Missing validation",
-              },
-              cost: { totalCostUsd: 0.01 },
-              sessionId: "mock",
-            };
-          }
-          return {
-            ok: true,
-            result: "",
-            structuredOutput: { passed: true, gapDescription: "" },
-            cost: { totalCostUsd: 0.01 },
-            sessionId: "mock",
-          };
+          return { ok: true, result: "", structuredOutput: { passed: round1Done, gapDescription: round1Done ? "" : "Missing validation" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
         }
       }
 
-      // Fix step
-      if (prompt.includes("Fix spec compliance gap")) {
+      // Fix step (batch or individual)
+      if (prompt.includes("Fix") && prompt.includes("compliance")) {
         round1Done = true;
       }
 
-      return {
-        ok: true,
-        result: "done",
-        structuredOutput: { passed: true, gapDescription: "" },
-        cost: { totalCostUsd: 0.01 },
-        sessionId: "mock",
-      };
+      return { ok: true, result: "done", structuredOutput: null, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
     };
 
     const result = await runSpecComplianceLoop(["REQ-01", "REQ-02"], ctx);
@@ -389,8 +391,8 @@ describe("runSpecComplianceLoop", () => {
   });
 
   it("TestSpecCompliance_Loop_NotConverging", async () => {
-    // Gaps stay the same across rounds: [3, 2, 2] -> stops at round 2
-    let fixAttempts = 0;
+    // Gaps stay the same across rounds: [3, 2, 1, 1] -> stops at round 3 (stuck)
+    let fixRounds = 0;
 
     const { ctx } = makeMockContext({
       maxComplianceRounds: 5,
@@ -399,64 +401,35 @@ describe("runSpecComplianceLoop", () => {
     (ctx.stepRunnerContext as any).executeQueryFn = async (opts: any) => {
       const prompt = opts.prompt as string;
 
-      if (prompt.includes("Verify whether requirement")) {
-        // REQ-01 always fails
-        if (prompt.includes("REQ-01")) {
-          return {
-            ok: true,
-            result: "",
-            structuredOutput: {
-              passed: false,
-              gapDescription: "Still broken",
-            },
-            cost: { totalCostUsd: 0.01 },
-            sessionId: "mock",
-          };
-        }
-        // REQ-02: fails round 1, passes after
-        if (prompt.includes("REQ-02")) {
-          if (fixAttempts === 0) {
-            return {
-              ok: true,
-              result: "",
-              structuredOutput: {
-                passed: false,
-                gapDescription: "Needs fix",
-              },
-              cost: { totalCostUsd: 0.01 },
-              sessionId: "mock",
-            };
-          }
-          return {
-            ok: true,
-            result: "",
-            structuredOutput: { passed: true, gapDescription: "" },
-            cost: { totalCostUsd: 0.01 },
-            sessionId: "mock",
-          };
-        }
-        // REQ-03 always passes
+      // Handle batch verification
+      if (prompt.includes("Verify whether each of the following requirements")) {
+        const verdicts = [
+          { id: "REQ-01", passed: false, gapDescription: "Still broken" },
+          { id: "REQ-02", passed: fixRounds > 0, gapDescription: fixRounds > 0 ? "" : "Needs fix" },
+          { id: "REQ-03", passed: true, gapDescription: "" },
+        ];
         return {
           ok: true,
-          result: "",
-          structuredOutput: { passed: true, gapDescription: "" },
+          result: "```json\n" + JSON.stringify(verdicts) + "\n```",
+          structuredOutput: null,
           cost: { totalCostUsd: 0.01 },
           sessionId: "mock",
         };
       }
 
-      // Fix step
-      if (prompt.includes("Fix spec compliance gap")) {
-        fixAttempts++;
+      // Handle individual verification (fallback)
+      if (prompt.includes("Verify whether requirement")) {
+        if (prompt.includes("REQ-01")) return { ok: true, result: "", structuredOutput: { passed: false, gapDescription: "Still broken" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+        if (prompt.includes("REQ-02")) return { ok: true, result: "", structuredOutput: { passed: fixRounds > 0, gapDescription: fixRounds > 0 ? "" : "Needs fix" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+        return { ok: true, result: "", structuredOutput: { passed: true, gapDescription: "" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
       }
 
-      return {
-        ok: true,
-        result: "done",
-        structuredOutput: null,
-        cost: { totalCostUsd: 0.01 },
-        sessionId: "mock",
-      };
+      // Fix step (batch or individual)
+      if (prompt.includes("Fix") && prompt.includes("compliance")) {
+        fixRounds++;
+      }
+
+      return { ok: true, result: "done", structuredOutput: null, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
     };
 
     const result = await runSpecComplianceLoop(
@@ -479,68 +452,40 @@ describe("runSpecComplianceLoop", () => {
       maxComplianceRounds: 2,
     });
 
-    let round = 0;
+    let fixRounds = 0;
 
     (ctx.stepRunnerContext as any).executeQueryFn = async (opts: any) => {
       const prompt = opts.prompt as string;
 
-      if (prompt.includes("Verify whether requirement")) {
-        // REQ-01: always fails (stubborn gap)
-        if (prompt.includes("REQ-01")) {
-          return {
-            ok: true,
-            result: "",
-            structuredOutput: {
-              passed: false,
-              gapDescription: "Persistent issue",
-            },
-            cost: { totalCostUsd: 0.01 },
-            sessionId: "mock",
-          };
-        }
-        // REQ-02: fails round 1, passes after
-        if (prompt.includes("REQ-02")) {
-          if (round < 1) {
-            return {
-              ok: true,
-              result: "",
-              structuredOutput: {
-                passed: false,
-                gapDescription: "Fixable",
-              },
-              cost: { totalCostUsd: 0.01 },
-              sessionId: "mock",
-            };
-          }
-          return {
-            ok: true,
-            result: "",
-            structuredOutput: { passed: true, gapDescription: "" },
-            cost: { totalCostUsd: 0.01 },
-            sessionId: "mock",
-          };
-        }
+      // Handle batch verification
+      if (prompt.includes("Verify whether each of the following requirements")) {
+        const verdicts = [
+          { id: "REQ-01", passed: false, gapDescription: "Persistent issue" },
+          { id: "REQ-02", passed: fixRounds > 0, gapDescription: fixRounds > 0 ? "" : "Fixable" },
+          { id: "REQ-03", passed: true, gapDescription: "" },
+        ];
         return {
           ok: true,
-          result: "",
-          structuredOutput: { passed: true, gapDescription: "" },
+          result: "```json\n" + JSON.stringify(verdicts) + "\n```",
+          structuredOutput: null,
           cost: { totalCostUsd: 0.01 },
           sessionId: "mock",
         };
       }
 
-      // Fix step increments round
-      if (prompt.includes("Fix spec compliance gap")) {
-        round++;
+      // Handle individual verification (fallback + final re-verify)
+      if (prompt.includes("Verify whether requirement")) {
+        if (prompt.includes("REQ-01")) return { ok: true, result: "", structuredOutput: { passed: false, gapDescription: "Persistent issue" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+        if (prompt.includes("REQ-02")) return { ok: true, result: "", structuredOutput: { passed: fixRounds > 0, gapDescription: fixRounds > 0 ? "" : "Fixable" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+        return { ok: true, result: "", structuredOutput: { passed: true, gapDescription: "" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
       }
 
-      return {
-        ok: true,
-        result: "done",
-        structuredOutput: null,
-        cost: { totalCostUsd: 0.01 },
-        sessionId: "mock",
-      };
+      // Fix step (batch or individual)
+      if (prompt.includes("Fix") && prompt.includes("compliance")) {
+        fixRounds++;
+      }
+
+      return { ok: true, result: "done", structuredOutput: null, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
     };
 
     const result = await runSpecComplianceLoop(

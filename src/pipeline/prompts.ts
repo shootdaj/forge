@@ -195,3 +195,38 @@ export function buildComplianceGapPrompt(
     `5. This is compliance round ${round} -- if prior rounds failed to fix this, try a different approach`,
   ].join("\n");
 }
+
+/**
+ * Build prompt for fixing ALL spec compliance gaps in a single session.
+ *
+ * Batches all gap fixes into one agent session to avoid the overhead
+ * of spawning separate sessions per requirement.
+ *
+ * @param gaps - Array of { id, description } for each gap
+ * @param round - Current compliance round number
+ * @returns Prompt string for the batch gap fix step
+ */
+export function buildBatchGapFixPrompt(
+  gaps: Array<{ id: string; description: string }>,
+  round: number,
+): string {
+  const gapList = gaps
+    .map((g) => `### ${g.id}\n${g.description}`)
+    .join("\n\n");
+
+  return [
+    `Fix ALL spec compliance gaps below (round ${round}). There are ${gaps.length} gaps to fix.`,
+    "",
+    "## Gaps to fix:",
+    "",
+    gapList,
+    "",
+    "## Instructions:",
+    "1. Work through each gap systematically",
+    "2. For each gap: analyze what's missing, implement the fix, write/update tests",
+    "3. Run the test suite periodically to verify fixes don't break other things",
+    "4. Focus on the most impactful gaps first (core functionality before edge cases)",
+    `5. This is compliance round ${round} -- if prior rounds failed to fix a gap, try a different approach`,
+    "6. After fixing all gaps, run the full test suite to verify everything passes",
+  ].join("\n");
+}

@@ -9,6 +9,9 @@
  * Requirements: SDK-01, SDK-02, SDK-03, SDK-04, SDK-05
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
+
 import type {
   ForgeQueryOptions,
   QueryResult,
@@ -21,6 +24,22 @@ import type {
   TokenUsage,
   ModelUsageBreakdown,
 } from "./types.js";
+
+const LOG_DIR = path.join(process.cwd(), ".forge");
+const LOG_FILE = path.join(LOG_DIR, "forge.log");
+
+function log(level: string, msg: string, data?: unknown): void {
+  try {
+    if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
+    const ts = new Date().toISOString();
+    const line = data
+      ? `[${ts}] [${level}] ${msg} ${JSON.stringify(data)}\n`
+      : `[${ts}] [${level}] ${msg}\n`;
+    fs.appendFileSync(LOG_FILE, line);
+  } catch {
+    // Logging should never crash the app
+  }
+}
 
 /**
  * Default cost data for when a query produces no result message.
@@ -237,7 +256,54 @@ export async function processQueryMessages<T = unknown>(
   // We'll capture the result message to extract everything from
   let resultMsg: Record<string, unknown> | undefined;
 
-  for await (const message of messageStream) {
+  // Use raw async iterator to avoid for-await cleanup semantics.
+  // When `break` exits a for-await loop, it calls iterator.return() which
+  // may block waiting for the SDK's child process to exit. By using the raw
+  // protocol, we can abandon the iterator immediately after receiving the
+  // result message without triggering cleanup.
+  const iterator = messageStream[Symbol.asyncIterator]();
+  const INACTIVITY_TIMEOUT_MS = 300_000; // 5 minutes without a message = stuck
+  while (true) {
+    // Race iterator.next() against an inactivity timeout.
+    // If the child process dies without emitting a result, this prevents
+    // the pipeline from hanging forever.
+    const timeoutPromise = new Promise<{ done: true; value: undefined }>((resolve) =>
+      setTimeout(() => resolve({ done: true, value: undefined }), INACTIVITY_TIMEOUT_MS),
+    );
+    const { value: message, done } = await Promise.race([
+      iterator.next(),
+      timeoutPromise,
+    ]);
+    if (done || !message) {
+      if (!resultMsg) {
+        log("WARN", "Iterator ended without result message (possible timeout or child process crash)");
+      }
+      break;
+    }
+
+    log("DEBUG", "SDK message", {
+      type: message.type,
+      subtype: message.subtype,
+      keys: Object.keys(message),
+    });
+
+    // Print progress to terminal
+    if (message.type === "assistant" && message.message) {
+      const msg = message.message as { role?: string; content?: unknown };
+      if (Array.isArray(msg.content)) {
+        for (const block of msg.content) {
+          if (block.type === "text" && block.text) {
+            const preview = (block.text as string).slice(0, 150);
+            console.log(`[forge] ${preview}${(block.text as string).length > 150 ? "..." : ""}`);
+          } else if (block.type === "tool_use") {
+            console.log(`[forge] Tool: ${block.name}`);
+          }
+        }
+      }
+    } else if (message.type === "result") {
+      console.log(`[forge] Query complete (subtype: ${message.subtype})`);
+    }
+
     // Capture init data from system message
     if (message.type === "system" && message.subtype === "init") {
       initData = extractInitData(
@@ -258,9 +324,12 @@ export async function processQueryMessages<T = unknown>(
       lastAssistantError = message.error as string;
     }
 
-    // Capture the result message
+    // Capture the result message and stop iterating.
+    // We abandon the iterator without calling return() so the pipeline
+    // continues immediately even if the child process hasn't exited yet.
     if (message.type === "result") {
       resultMsg = message as unknown as Record<string, unknown>;
+      break;
     }
   }
 
@@ -369,6 +438,14 @@ export async function executeQuery<T = unknown>(
   }) => AsyncIterable<{ type: string; subtype?: string; [key: string]: unknown }>,
 ): Promise<QueryResult<T>> {
   const sdkOptions = buildSDKOptions(opts);
+  log("INFO", "executeQuery called", {
+    prompt: opts.prompt.slice(0, 200),
+    model: opts.model,
+    maxBudgetUsd: opts.maxBudgetUsd,
+    maxTurns: opts.maxTurns,
+    hasOutputSchema: !!opts.outputSchema,
+  });
+  log("DEBUG", "SDK options", sdkOptions);
 
   // Use injected queryFn or dynamically import the real SDK
   let messageStream: AsyncIterable<{
@@ -381,12 +458,35 @@ export async function executeQuery<T = unknown>(
     messageStream = queryFn({ prompt: opts.prompt, options: sdkOptions });
   } else {
     // Dynamic import to avoid hard dependency in tests
+    log("INFO", "Importing Agent SDK and calling query()...");
+    console.log("[forge] Starting SDK query...");
     const sdk = await import("@anthropic-ai/claude-agent-sdk");
     messageStream = sdk.query({
       prompt: opts.prompt,
-      options: sdkOptions as Parameters<typeof sdk.query>[0]["options"],
+      options: {
+        ...sdkOptions,
+        stderr: (s: string) => {
+          log("STDERR", s.trim());
+        },
+      } as Parameters<typeof sdk.query>[0]["options"],
     });
+    log("INFO", "query() returned message stream");
   }
 
-  return processQueryMessages<T>(messageStream);
+  try {
+    const result = await processQueryMessages<T>(messageStream);
+    log("INFO", "executeQuery result", {
+      ok: result.ok,
+      sessionId: result.sessionId,
+      cost: result.cost,
+      ...(result.ok ? {} : { error: (result as QueryFailure).error }),
+    });
+    return result;
+  } catch (err) {
+    log("ERROR", "executeQuery threw", {
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+    throw err;
+  }
 }

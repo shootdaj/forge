@@ -11,22 +11,53 @@
 import type { PlanVerificationResult } from "./types.js";
 
 /**
- * Extract requirement IDs from plan content.
+ * Extract requirement IDs referenced in plan content.
  *
- * Matches patterns like PHA-01, GAP-03, STEP-01, VER-02, etc.
- * Case-insensitive, deduplicates, returns sorted uppercase array.
+ * Uses two strategies:
+ * 1. Frontmatter: parses `requirement_ids:` YAML field (most reliable)
+ * 2. Body text: searches for each known required ID as a literal match
+ *
+ * If knownIds are provided, only those IDs are searched for (no guessing).
+ * If no knownIds, falls back to regex pattern matching.
  *
  * Requirement: PHA-04
- *
- * @param planContent - The raw plan markdown content
- * @returns Sorted array of unique uppercase requirement IDs
  */
-export function parsePlanRequirements(planContent: string): string[] {
-  const pattern = /\b([A-Z]+-\d+)\b/gi;
+export function parsePlanRequirements(
+  planContent: string,
+  knownIds?: string[],
+): string[] {
   const ids = new Set<string>();
 
-  for (const match of planContent.matchAll(pattern)) {
-    ids.add(match[1].toUpperCase());
+  // Strategy 1: Parse frontmatter requirement_ids field
+  // Matches: requirement_ids: [R1, R14, PHA-01] or requirement_ids: [R1, R14]
+  const frontmatterMatch = planContent.match(
+    /requirement_ids:\s*\[([^\]]*)\]/i,
+  );
+  if (frontmatterMatch) {
+    const raw = frontmatterMatch[1];
+    for (const id of raw.split(",")) {
+      const trimmed = id.trim().replace(/['"]/g, "");
+      if (trimmed) ids.add(trimmed.toUpperCase());
+    }
+  }
+
+  // Strategy 2: If known IDs provided, check for each as literal text
+  if (knownIds && knownIds.length > 0) {
+    const upperContent = planContent.toUpperCase();
+    for (const id of knownIds) {
+      if (upperContent.includes(id.toUpperCase())) {
+        ids.add(id.toUpperCase());
+      }
+    }
+  }
+
+  // Strategy 3: Fallback regex for unknown ID formats
+  if (!knownIds || knownIds.length === 0) {
+    // Hyphenated: PHA-01, SDK-02
+    const hyphenated = /\b([A-Z]{2,}-\d+)\b/gi;
+    for (const match of planContent.matchAll(hyphenated)) {
+      ids.add(match[1].toUpperCase());
+    }
   }
 
   return [...ids].sort();
@@ -35,31 +66,38 @@ export function parsePlanRequirements(planContent: string): string[] {
 /**
  * Verify a plan's coverage against a set of required requirement IDs.
  *
- * Checks:
- * - All required IDs are referenced in the plan
- * - The plan includes test-related tasks
- * - The plan has success/verification criteria
- * - No scope creep (extra IDs not in required set)
- * - Tasks are numbered sequentially
+ * Checks each required ID against:
+ * 1. The plan's frontmatter requirement_ids field
+ * 2. Literal presence in the plan body text
  *
  * `passed` is true when: no missing requirements AND has test tasks.
  *
  * Requirement: PHA-04
- *
- * @param planContent - The raw plan markdown content
- * @param requiredIds - Requirement IDs this plan should cover
- * @returns Full PlanVerificationResult
  */
 export function verifyPlanCoverage(
   planContent: string,
   requiredIds: string[],
 ): PlanVerificationResult {
-  const normalizedRequired = requiredIds.map((id) => id.toUpperCase());
-  const allIdsInPlan = parsePlanRequirements(planContent);
+  // If no requirements specified, pass automatically
+  if (requiredIds.length === 0) {
+    return {
+      passed: true,
+      coveredRequirements: [],
+      missingRequirements: [],
+      hasTestTasks: true,
+      missingTestTasks: [],
+      executionOrderValid: checkExecutionOrder(planContent),
+      hasSuccessCriteria: true,
+      scopeCreep: [],
+    };
+  }
 
-  // Covered: IDs in the plan that are also in the required set
-  const coveredRequirements = allIdsInPlan.filter((id) =>
-    normalizedRequired.includes(id),
+  const normalizedRequired = requiredIds.map((id) => id.toUpperCase());
+  const allIdsInPlan = parsePlanRequirements(planContent, requiredIds);
+
+  // Covered: required IDs found in the plan
+  const coveredRequirements = normalizedRequired.filter((id) =>
+    allIdsInPlan.includes(id),
   );
 
   // Missing: required IDs not found in the plan
@@ -67,30 +105,25 @@ export function verifyPlanCoverage(
     (id) => !allIdsInPlan.includes(id),
   );
 
-  // Test task detection: look for test-related keywords in task sections
+  // Test task detection
   const testKeywords =
     /\b(test|tests|testing|unit test|integration test|scenario test)\b/i;
   const hasTestTasks = testKeywords.test(planContent);
 
-  // Missing test tasks: components without test coverage
   const missingTestTasks = detectMissingTestTasks(planContent);
 
-  // Success criteria detection
   const hasSuccessCriteria =
     /\b(success|verification|verify|done|success_criteria|success criteria)\b/i.test(
       planContent,
     );
 
-  // Execution order: check tasks are numbered sequentially
   const executionOrderValid = checkExecutionOrder(planContent);
 
-  // Scope creep: IDs in the plan that are NOT in the required set
-  // Filter out common non-requirement prefixes
-  const nonRequirementPrefixes = ["TEST", "GEN", "DOC"];
-  const scopeCreep = allIdsInPlan.filter(
-    (id) =>
-      !normalizedRequired.includes(id) &&
-      !nonRequirementPrefixes.some((prefix) => id.startsWith(prefix)),
+  // Scope creep: IDs found in plan but not in required set
+  // Only check IDs from frontmatter (not body text matches)
+  const frontmatterIds = parsePlanRequirements(planContent);
+  const scopeCreep = frontmatterIds.filter(
+    (id) => !normalizedRequired.includes(id),
   );
 
   return {
@@ -108,16 +141,7 @@ export function verifyPlanCoverage(
 /**
  * Inject test task sections into a plan for components that lack test tasks.
  *
- * Appends a well-structured test tasks section with:
- * - A `<!-- FORGE:INJECTED_TEST_TASKS -->` marker for traceability
- * - Task numbering continuing from the highest existing task number
- * - Unit, integration, and scenario test requirements per component
- *
  * Requirement: PHA-05
- *
- * @param planContent - The raw plan markdown content
- * @param components - Component names that need test tasks
- * @returns Modified plan content with injected test tasks
  */
 export function injectTestTasks(
   planContent: string,
@@ -127,7 +151,6 @@ export function injectTestTasks(
     return planContent;
   }
 
-  // Detect highest existing task number
   const taskNumberPattern = /Task\s+(\d+)/gi;
   let maxTaskNumber = 0;
   for (const match of planContent.matchAll(taskNumberPattern)) {
@@ -137,7 +160,6 @@ export function injectTestTasks(
     }
   }
 
-  // Build the test task section
   const testTaskLines: string[] = [
     "",
     "<!-- FORGE:INJECTED_TEST_TASKS -->",
@@ -175,7 +197,6 @@ export function injectTestTasks(
 
   const injectedSection = testTaskLines.join("\n");
 
-  // Insert before </tasks> closing tag if present, otherwise append at end
   const closingTagIndex = planContent.lastIndexOf("</tasks>");
   if (closingTagIndex !== -1) {
     return (
@@ -192,25 +213,15 @@ export function injectTestTasks(
  * Detect components/modules mentioned in task file sections that lack
  * corresponding test tasks.
  *
- * Parses `<files>` sections in tasks and checks if there are corresponding
- * test-related tasks for those components.
- *
  * Requirement: PHA-05
- *
- * @param planContent - The raw plan markdown content
- * @returns Array of component names that lack test tasks
  */
 export function detectMissingTestTasks(planContent: string): string[] {
-  // Extract file paths from <files> sections
   const filesPattern = /<files>(.*?)<\/files>/gi;
   const componentFiles = new Set<string>();
 
   for (const match of planContent.matchAll(filesPattern)) {
     const fileList = match[1].split(",").map((f) => f.trim());
     for (const file of fileList) {
-      // Extract the component/module name from the file path
-      // e.g., "src/phase-runner/checkpoint.ts" -> "checkpoint"
-      // Skip test files themselves
       if (file && !file.includes(".test.") && !file.includes(".spec.")) {
         const baseName = file.split("/").pop();
         if (baseName) {
@@ -223,10 +234,8 @@ export function detectMissingTestTasks(planContent: string): string[] {
     }
   }
 
-  // Check which components have corresponding test tasks
   const missing: string[] = [];
   for (const component of componentFiles) {
-    // Look for test references for this component
     const testPattern = new RegExp(
       `(test|tests|testing).*${escapeRegex(component)}|${escapeRegex(component)}.*(test|tests|\\.test\\.)`,
       "i",
@@ -241,12 +250,6 @@ export function detectMissingTestTasks(planContent: string): string[] {
 
 /**
  * Check whether tasks are numbered sequentially.
- *
- * A basic heuristic: extract all task numbers and verify they form
- * a sequential series starting from 1 (or at least are in order).
- *
- * @param planContent - The raw plan markdown content
- * @returns True if tasks are in sequential order
  */
 function checkExecutionOrder(planContent: string): boolean {
   const taskNumberPattern = /Task\s+(\d+)/gi;
@@ -254,17 +257,15 @@ function checkExecutionOrder(planContent: string): boolean {
 
   for (const match of planContent.matchAll(taskNumberPattern)) {
     const num = parseInt(match[1], 10);
-    // Avoid duplicates (same task number may appear in name and references)
     if (!numbers.includes(num)) {
       numbers.push(num);
     }
   }
 
   if (numbers.length === 0) {
-    return true; // No numbered tasks is vacuously valid
+    return true;
   }
 
-  // Check sequential ordering
   const sorted = [...numbers].sort((a, b) => a - b);
   for (let i = 1; i < sorted.length; i++) {
     if (sorted[i] !== sorted[i - 1] + 1) {
@@ -275,9 +276,6 @@ function checkExecutionOrder(planContent: string): boolean {
   return true;
 }
 
-/**
- * Escape special regex characters in a string.
- */
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

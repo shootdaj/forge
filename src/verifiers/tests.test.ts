@@ -34,12 +34,39 @@ const mockedExistsSync = vi.mocked(fs.existsSync);
 const mockedReadFileSync = vi.mocked(fs.readFileSync);
 const mockedUnlinkSync = vi.mocked(fs.unlinkSync);
 
+const VALID_PACKAGE_JSON = JSON.stringify({
+  scripts: { test: "vitest run" },
+});
+
 function makeConfig(overrides: Partial<VerifierConfig> = {}): VerifierConfig {
   return {
     cwd: "/project",
     forgeConfig: getDefaultConfig(),
     ...overrides,
   };
+}
+
+/**
+ * Helper: set up mocks so hasTestSetup() finds a valid package.json,
+ * while other file reads (temp JSON output) use a provided value.
+ */
+function mockFsForTests(opts: {
+  tempFileExists: boolean;
+  tempFileContent?: string;
+}) {
+  mockedExistsSync.mockImplementation((filePath: fs.PathLike) => {
+    const pathStr = String(filePath);
+    if (pathStr.includes("package.json")) return true;
+    // Temp output file
+    return opts.tempFileExists;
+  });
+
+  mockedReadFileSync.mockImplementation((filePath: fs.PathOrFileDescriptor) => {
+    const pathStr = String(filePath);
+    if (pathStr.includes("package.json")) return VALID_PACKAGE_JSON;
+    if (opts.tempFileContent !== undefined) return opts.tempFileContent;
+    return "";
+  });
 }
 
 describe("Tests Verifier", () => {
@@ -56,16 +83,16 @@ describe("Tests Verifier", () => {
   describe("TestTestsVerifier_AllTestsPass", () => {
     it("passes when all tests pass (vitest JSON format)", async () => {
       mockedExec.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
-      mockedExistsSync.mockReturnValue(true);
-      mockedReadFileSync.mockReturnValue(
-        JSON.stringify({
+      mockFsForTests({
+        tempFileExists: true,
+        tempFileContent: JSON.stringify({
           numPassedTests: 10,
           numFailedTests: 0,
           numPendingTests: 0,
           numTotalTests: 10,
           success: true,
         }),
-      );
+      });
 
       const result = await testsVerifier(makeConfig());
 
@@ -80,16 +107,16 @@ describe("Tests Verifier", () => {
   describe("TestTestsVerifier_SomeTestsFail", () => {
     it("fails when some tests fail", async () => {
       mockedExec.mockResolvedValue({ stdout: "", stderr: "", exitCode: 1 });
-      mockedExistsSync.mockReturnValue(true);
-      mockedReadFileSync.mockReturnValue(
-        JSON.stringify({
+      mockFsForTests({
+        tempFileExists: true,
+        tempFileContent: JSON.stringify({
           numPassedTests: 8,
           numFailedTests: 2,
           numPendingTests: 0,
           numTotalTests: 10,
           success: false,
         }),
-      );
+      });
 
       const result = await testsVerifier(makeConfig());
 
@@ -102,16 +129,16 @@ describe("Tests Verifier", () => {
   describe("TestTestsVerifier_NoTestsRun", () => {
     it("fails when no tests passed (numPassedTests === 0)", async () => {
       mockedExec.mockResolvedValue({ stdout: "", stderr: "", exitCode: 0 });
-      mockedExistsSync.mockReturnValue(true);
-      mockedReadFileSync.mockReturnValue(
-        JSON.stringify({
+      mockFsForTests({
+        tempFileExists: true,
+        tempFileContent: JSON.stringify({
           numPassedTests: 0,
           numFailedTests: 0,
           numPendingTests: 0,
           numTotalTests: 0,
           success: true,
         }),
-      );
+      });
 
       const result = await testsVerifier(makeConfig());
 
@@ -123,14 +150,14 @@ describe("Tests Verifier", () => {
   describe("TestTestsVerifier_JSONParseFails_FallbackToExitCode", () => {
     it("falls back to exit code when JSON parsing fails", async () => {
       mockedExec.mockResolvedValue({ stdout: "All tests passed", stderr: "", exitCode: 0 });
-      // Temp file does not exist
-      mockedExistsSync.mockReturnValue(false);
+      // Temp file does not exist, but package.json does
+      mockFsForTests({ tempFileExists: false });
 
       const result = await testsVerifier(makeConfig());
 
       expect(result.passed).toBe(true);
       expect(result.verifier).toBe("tests");
-      expect(result.details[0]).toContain("JSON output not available");
+      expect(result.details[0]).toContain("exited with code 0");
     });
 
     it("falls back to exit code failure when JSON unavailable and exit code non-zero", async () => {
@@ -139,7 +166,7 @@ describe("Tests Verifier", () => {
         stderr: "Error: test failed",
         exitCode: 1,
       });
-      mockedExistsSync.mockReturnValue(false);
+      mockFsForTests({ tempFileExists: false });
 
       const result = await testsVerifier(makeConfig());
 
@@ -155,12 +182,23 @@ describe("Tests Verifier", () => {
         stderr: "Timeout - process killed",
         exitCode: 1,
       });
-      mockedExistsSync.mockReturnValue(false);
+      mockFsForTests({ tempFileExists: false });
 
       const result = await testsVerifier(makeConfig());
 
       expect(result.passed).toBe(false);
       expect(result.verifier).toBe("tests");
+    });
+  });
+
+  describe("TestTestsVerifier_NoTestSetup", () => {
+    it("skips when no package.json test script exists", async () => {
+      mockedExistsSync.mockReturnValue(false);
+
+      const result = await testsVerifier(makeConfig());
+
+      expect(result.passed).toBe(true);
+      expect(result.details[0]).toContain("Skipped");
     });
   });
 });

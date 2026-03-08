@@ -62,6 +62,7 @@ export async function createPlan(
     contextContent,
     roadmapContent,
     requirementIds,
+    phaseDir,
   );
 
   const result = await runStep(

@@ -931,10 +931,8 @@ describe("Pipeline Edge Cases", () => {
     }
   });
 
-  it("TestPipeline_Wave1_PhaseFailure_ContinuesOthers", async () => {
-    // Phase 2 fails but phase 3 should still execute (if dependencies allow)
-    // In our simple roadmap, phase 3 depends on phase 2, so it will still run
-    // because the pipeline doesn't skip dependent phases on failure
+  it("TestPipeline_Wave1_PhaseFailure_SkipsDependents", async () => {
+    // Phase 2 fails; phase 3 depends on phase 2, so it should be skipped
     const { ctx, getRunPhaseCalls } = createTestPipelineContext({
       runPhaseFnBehavior: async (phaseNumber) => {
         if (phaseNumber === 2) {
@@ -946,9 +944,11 @@ describe("Pipeline Edge Cases", () => {
 
     await runPipeline(ctx);
 
-    // All 3 phases should have been attempted
+    // Only phases 1 and 2 should have been attempted; phase 3 skipped
     const calls = getRunPhaseCalls();
-    expect(calls.length).toBe(3);
+    expect(calls.length).toBe(2);
+    expect(calls[0].phaseNumber).toBe(1);
+    expect(calls[1].phaseNumber).toBe(2);
   });
 
   it("TestPipeline_MockInstructions_PassedToPhaseRunner", async () => {

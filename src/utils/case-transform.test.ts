@@ -115,6 +115,36 @@ describe("Case Transform Utilities", () => {
     });
   });
 
+  describe("TestCamelToSnake_PreservesScreamingSnakeCase", () => {
+    it("preserves SCREAMING_SNAKE_CASE keys like env var names", () => {
+      expect(camelToSnake("OAUTH_CLIENT_ID")).toBe("OAUTH_CLIENT_ID");
+      expect(camelToSnake("OAUTH_CLIENT_SECRET")).toBe("OAUTH_CLIENT_SECRET");
+      expect(camelToSnake("API_KEY")).toBe("API_KEY");
+      expect(camelToSnake("DB_URL")).toBe("DB_URL");
+    });
+
+    it("preserves numeric keys", () => {
+      expect(camelToSnake("1")).toBe("1");
+      expect(camelToSnake("42")).toBe("42");
+    });
+
+    it("preserves credential keys in nested objects through round-trip", () => {
+      const original = {
+        credentials: {
+          OAUTH_CLIENT_ID: "abc",
+          OAUTH_CLIENT_SECRET: "xyz",
+        },
+        human_guidance: {},
+        project_dir: "/tmp/test",
+      };
+
+      const camel = snakeToCamelKeys<Record<string, unknown>>(original);
+      const backToSnake = camelToSnakeKeys<Record<string, unknown>>(camel);
+
+      expect(backToSnake).toEqual(original);
+    });
+  });
+
   describe("TestTransformPrimitives", () => {
     it("handles null, undefined, and primitives without error", () => {
       expect(snakeToCamelKeys(null)).toBeNull();

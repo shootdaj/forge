@@ -33,6 +33,7 @@ export {
   runSpecComplianceLoop,
   checkConvergence,
   verifyRequirement,
+  verifyRequirementsBatch,
 } from "./spec-compliance.js";
 
 export {
@@ -41,6 +42,7 @@ export {
   buildIntegrationPrompt,
   buildSkippedItemPrompt,
   buildComplianceGapPrompt,
+  buildBatchGapFixPrompt,
 } from "./prompts.js";
 
 export type {

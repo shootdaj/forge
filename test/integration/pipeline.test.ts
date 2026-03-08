@@ -739,6 +739,24 @@ describe("Pipeline Integration: Compliance + State", () => {
       executeQueryBehavior: async (opts: any) => {
         const prompt = opts.prompt as string;
 
+        // Handle batch verification (all requirements fail)
+        if (prompt.includes("Verify whether each of the following requirements")) {
+          const reqIds = prompt.match(/- ([\w-]+)/g)?.map((m: string) => m.slice(2)) ?? [];
+          const verdicts = reqIds.map((id: string) => ({
+            id,
+            passed: false,
+            gapDescription: "Still broken -- not converging",
+          }));
+          return {
+            ok: true,
+            result: "```json\n" + JSON.stringify(verdicts) + "\n```",
+            structuredOutput: null,
+            cost: { totalCostUsd: 0.01 },
+            sessionId: "mock",
+          };
+        }
+
+        // Handle individual verification (fallback)
         if (prompt.includes("Verify whether requirement")) {
           return {
             ok: true,
