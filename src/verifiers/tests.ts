@@ -1,14 +1,15 @@
 /**
  * Tests Verifier (VER-02)
  *
- * Runs the configured test command, parses JSON output (vitest/jest compatible),
- * and reports pass/fail based on numPassedTests and numFailedTests.
+ * Runs the configured test command. Falls back to exit-code-only if
+ * JSON output isn't available.
  */
 
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { Verifier, VerifierResult } from "./types.js";
+import { skippedResult } from "./types.js";
 import { execWithTimeout } from "./utils.js";
 
 /**
@@ -23,31 +24,51 @@ interface TestJsonReport {
 }
 
 /**
+ * Check if the project has tests configured.
+ */
+function hasTestSetup(cwd: string): boolean {
+  try {
+    const pkgPath = path.resolve(cwd, "package.json");
+    if (!fs.existsSync(pkgPath)) return false;
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+    return !!(pkg.scripts?.test || pkg.scripts?.["test:unit"]);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Verify that project tests pass.
  *
- * Strategy:
- * - Append --outputFile={tmpFile} to the test command to capture JSON output
- * - Parse JSON from the temp file (avoids stdout/stderr mixing)
- * - If JSON parsing fails, fall back to exit-code-only interpretation
- * - Pass when numPassedTests > 0 AND numFailedTests === 0
+ * Skips if no package.json or test script exists (early phases may not
+ * have tests yet). Uses configured command or falls back to npm test.
  *
  * Requirement: VER-02
  */
 export const testsVerifier: Verifier = async (config): Promise<VerifierResult> => {
-  const testCommand = config.forgeConfig.testing.unitCommand ?? "npm test -- --json";
+  if (!hasTestSetup(config.cwd)) {
+    return skippedResult("tests", "No test script found in package.json");
+  }
 
-  // Create a temp file for JSON output to avoid stdout/stderr mixing
+  const testCommand = config.forgeConfig.testing.unitCommand ?? "npm test";
+
+  // Try with JSON output first
   const tmpFile = path.join(
     os.tmpdir(),
     `forge-test-results-${Date.now()}-${Math.random().toString(36).slice(2)}.json`,
   );
 
-  const fullCommand = `${testCommand} --outputFile=${tmpFile}`;
+  // Only append --outputFile if the command looks like vitest/jest
+  const supportsJsonOutput = /vitest|jest/.test(testCommand);
+  const fullCommand = supportsJsonOutput
+    ? `${testCommand} --outputFile=${tmpFile}`
+    : testCommand;
 
   try {
-    const result = await execWithTimeout(fullCommand, config.cwd, 60_000);
+    const result = await execWithTimeout(fullCommand, config.cwd, 120_000);
 
-    // Try to parse JSON from the temp file
+    // Try to parse JSON from the temp file (always attempt — it may have been
+    // created by the underlying test runner even without --outputFile)
     let report: TestJsonReport | null = null;
     try {
       if (fs.existsSync(tmpFile)) {
@@ -84,14 +105,13 @@ export const testsVerifier: Verifier = async (config): Promise<VerifierResult> =
       passed,
       verifier: "tests",
       details: [
-        `Test command exited with code ${result.exitCode} (JSON output not available)`,
+        `Test command exited with code ${result.exitCode}`,
       ],
       errors: passed
         ? []
         : [`Test command failed with exit code ${result.exitCode}`, ...truncateOutput(result.stderr || result.stdout)],
     };
   } finally {
-    // Clean up temp file
     try {
       if (fs.existsSync(tmpFile)) {
         fs.unlinkSync(tmpFile);
@@ -102,11 +122,7 @@ export const testsVerifier: Verifier = async (config): Promise<VerifierResult> =
   }
 };
 
-/**
- * Truncate output to the first 20 lines for error reporting.
- */
 function truncateOutput(output: string): string[] {
   if (!output.trim()) return [];
-  const lines = output.trim().split("\n").slice(0, 20);
-  return lines;
+  return output.trim().split("\n").slice(0, 20);
 }

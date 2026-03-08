@@ -538,6 +538,13 @@ describe("Pipeline Scenarios: UAT Gate", () => {
     } as any;
 
     const executeQueryFn = vi.fn().mockImplementation(async (opts: any) => {
+      // Handle batch verification (all pass)
+      if (opts.prompt?.includes("Verify whether each of the following requirements")) {
+        const reqIds = opts.prompt.match(/- ([\w-]+)/g)?.map((m: string) => m.slice(2)) ?? [];
+        const verdicts = reqIds.map((id: string) => ({ id, passed: true, gapDescription: "" }));
+        return { ok: true, result: "```json\n" + JSON.stringify(verdicts) + "\n```", structuredOutput: null, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+      }
+      // Handle individual verification (fallback)
       if (opts.prompt?.includes("Verify whether requirement")) {
         return { ok: true, result: "", structuredOutput: { passed: true, gapDescription: "" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
       }

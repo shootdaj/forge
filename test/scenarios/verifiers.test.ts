@@ -162,9 +162,12 @@ describe("Scenario: Verification Pipeline End-to-End", () => {
         return { stdout: "", stderr: "", exitCode: 0 };
       });
 
-      // Test runner JSON: 3 failed
+      // Test runner JSON: 3 failed (and package.json with test script)
       mockedReadFileSync.mockImplementation((filePath: fs.PathOrFileDescriptor) => {
         const pathStr = String(filePath);
+        if (pathStr.includes("package.json")) {
+          return JSON.stringify({ scripts: { test: "vitest run" } });
+        }
         if (pathStr.includes("Dockerfile")) {
           return "FROM node:20\nRUN npm install";
         }
@@ -226,15 +229,19 @@ describe("Scenario: Verification Pipeline End-to-End", () => {
         return { stdout: "", stderr: "", exitCode: 0 };
       });
 
-      mockedReadFileSync.mockReturnValue(
-        JSON.stringify({
+      mockedReadFileSync.mockImplementation((filePath: fs.PathOrFileDescriptor) => {
+        const pathStr = String(filePath);
+        if (pathStr.includes("package.json")) {
+          return JSON.stringify({ scripts: { test: "vitest run" } });
+        }
+        return JSON.stringify({
           numPassedTests: 3,
           numFailedTests: 0,
           numPendingTests: 0,
           numTotalTests: 3,
           success: true,
-        }),
-      );
+        });
+      });
 
       const report = await runVerifiers(config);
 
@@ -266,7 +273,7 @@ describe("Scenario: Verification Pipeline End-to-End", () => {
       expect(lintResult).toBeDefined();
       expect(lintResult!.passed).toBe(true);
 
-      // Summary should reflect skips correctly
+      // Summary should reflect skips correctly (typecheck + coverage)
       expect(report.summary.skipped).toBe(2);
       expect(report.summary.failed).toBe(0);
     });

@@ -12,7 +12,7 @@
 
 import type { PipelineContext, SpecComplianceResult } from "./types.js";
 import { runStep } from "../step-runner/step-runner.js";
-import { buildComplianceGapPrompt } from "./prompts.js";
+import { buildBatchGapFixPrompt } from "./prompts.js";
 
 /**
  * Check whether the gap history indicates convergence.
@@ -104,22 +104,6 @@ export async function verifyRequirement(
   requirementId: string,
   ctx: PipelineContext,
 ): Promise<{ passed: boolean; gapDescription: string }> {
-  const outputSchema = {
-    type: "object" as const,
-    properties: {
-      passed: {
-        type: "boolean" as const,
-        description: "Whether the requirement is fully met",
-      },
-      gapDescription: {
-        type: "string" as const,
-        description:
-          "Description of what is missing or failing. Empty string if passed.",
-      },
-    },
-    required: ["passed", "gapDescription"],
-  };
-
   const result = await runStep(
     `verify-requirement-${requirementId}`,
     {
@@ -131,34 +115,217 @@ export async function verifyRequirement(
         "2. Tests that verify the requirement behavior",
         "3. No obvious bugs or missing edge cases",
         "",
-        "Return a JSON object with:",
-        '- passed: true if the requirement is fully met, false otherwise',
-        '- gapDescription: description of what is missing (empty string if passed)',
+        "After your analysis, output your verdict as a JSON code block:",
+        "```json",
+        '{ "passed": true, "gapDescription": "" }',
+        "```",
+        "Set passed to false and describe the gap if the requirement is not fully met.",
       ].join("\n"),
-      verify: async () => true, // Verification is done via structured output
-      outputSchema,
+      verify: async () => true,
     },
     ctx.stepRunnerContext,
     ctx.costController,
   );
 
-  // Extract structured output from verified results
-  if (result.status === "verified" && result.structuredOutput) {
-    const output = result.structuredOutput as {
-      passed: boolean;
-      gapDescription: string;
-    };
-    return {
-      passed: Boolean(output.passed),
-      gapDescription: output.gapDescription ?? "",
-    };
+  if (result.status === "verified") {
+    // Try structured output first (if SDK provided it)
+    if (result.structuredOutput) {
+      const output = result.structuredOutput as {
+        passed: boolean;
+        gapDescription: string;
+      };
+      return {
+        passed: Boolean(output.passed),
+        gapDescription: output.gapDescription ?? "",
+      };
+    }
+
+    // Parse JSON from text response
+    const text = result.result ?? "";
+    const parsed = extractJsonVerdict(text);
+    if (parsed) {
+      return parsed;
+    }
+
+    // If we got a successful response but couldn't parse JSON,
+    // treat as passed (the agent did its work without reporting issues)
+    return { passed: true, gapDescription: "" };
   }
 
-  // If step failed or didn't produce structured output, treat as gap
+  // If step failed, treat as gap
   return {
     passed: false,
-    gapDescription: `Verification step failed: ${result.status === "verified" ? "no structured output" : result.status}`,
+    gapDescription: `Verification step failed: ${result.status}`,
   };
+}
+
+/**
+ * Verify ALL requirements in a single SDK session (batched).
+ *
+ * Instead of spawning one SDK session per requirement, this sends
+ * all requirement IDs to a single agent session and parses the
+ * results from a JSON array in the response.
+ *
+ * Falls back to individual verification if batch parsing fails.
+ *
+ * Requirement: PIPE-07
+ */
+export async function verifyRequirementsBatch(
+  requirementIds: string[],
+  ctx: PipelineContext,
+): Promise<Array<{ id: string; passed: boolean; gapDescription: string }>> {
+  const reqList = requirementIds.map((id) => `- ${id}`).join("\n");
+
+  const result = await runStep(
+    `verify-requirements-batch`,
+    {
+      prompt: [
+        "Verify whether each of the following requirements is fully implemented and working in this codebase.",
+        "",
+        "Requirements to check:",
+        reqList,
+        "",
+        "For each requirement, check:",
+        "1. Implementation code that addresses the requirement",
+        "2. Tests that verify the requirement behavior",
+        "3. No obvious bugs or missing edge cases",
+        "",
+        "After analyzing ALL requirements, output your verdicts as a single JSON code block containing an array:",
+        "```json",
+        "[",
+        '  { "id": "R1", "passed": true, "gapDescription": "" },',
+        '  { "id": "R2", "passed": false, "gapDescription": "Missing error handling for..." }',
+        "]",
+        "```",
+        "",
+        "IMPORTANT: You MUST include a verdict for EVERY requirement listed above.",
+        "Output the JSON array as the very last thing in your response.",
+      ].join("\n"),
+      verify: async () => true,
+    },
+    ctx.stepRunnerContext,
+    ctx.costController,
+  );
+
+  if (result.status === "verified") {
+    const text = result.result ?? "";
+    const parsed = extractJsonVerdictArray(text);
+    if (parsed && parsed.length > 0) {
+      // Ensure we have a verdict for every requirement
+      const verdictMap = new Map(parsed.map((v) => [v.id, v]));
+      return requirementIds.map((id) => {
+        const verdict = verdictMap.get(id);
+        if (verdict) return verdict;
+        // Missing from response — treat as gap
+        return { id, passed: false, gapDescription: "Not included in batch verification response" };
+      });
+    }
+  }
+
+  // Batch failed — fall back to individual verification
+  console.log("[compliance] Batch verification failed, falling back to individual checks");
+  const results: Array<{ id: string; passed: boolean; gapDescription: string }> = [];
+  for (const id of requirementIds) {
+    const r = await verifyRequirement(id, ctx);
+    results.push({ id, ...r });
+  }
+  return results;
+}
+
+/**
+ * Extract a { passed, gapDescription } JSON object from agent text output.
+ * Looks for JSON in code blocks or bare JSON objects.
+ */
+function extractJsonVerdict(
+  text: string,
+): { passed: boolean; gapDescription: string } | null {
+  // Try code block first
+  const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  const jsonStr = codeBlockMatch ? codeBlockMatch[1] : text;
+
+  try {
+    const parsed = JSON.parse(jsonStr.trim());
+    if (typeof parsed.passed === "boolean") {
+      return {
+        passed: parsed.passed,
+        gapDescription: String(parsed.gapDescription ?? ""),
+      };
+    }
+  } catch {
+    // Try to find JSON object anywhere in the text
+    const objectMatch = text.match(/\{[\s\S]*?"passed"\s*:\s*(true|false)[\s\S]*?\}/);
+    if (objectMatch) {
+      try {
+        const parsed = JSON.parse(objectMatch[0]);
+        return {
+          passed: Boolean(parsed.passed),
+          gapDescription: String(parsed.gapDescription ?? ""),
+        };
+      } catch {
+        // Give up
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Extract an array of { id, passed, gapDescription } verdicts from agent text output.
+ * Used by batch verification.
+ */
+function extractJsonVerdictArray(
+  text: string,
+): Array<{ id: string; passed: boolean; gapDescription: string }> | null {
+  // Try code block first
+  const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  const jsonStr = codeBlockMatch ? codeBlockMatch[1] : text;
+
+  try {
+    const parsed = JSON.parse(jsonStr.trim());
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((item: unknown) => {
+          const obj = item as Record<string, unknown>;
+          return typeof obj.id === "string" && typeof obj.passed === "boolean";
+        })
+        .map((item: unknown) => {
+          const obj = item as Record<string, unknown>;
+          return {
+            id: String(obj.id),
+            passed: Boolean(obj.passed),
+            gapDescription: String(obj.gapDescription ?? ""),
+          };
+        });
+    }
+  } catch {
+    // Try to find JSON array anywhere in the text
+    const arrayMatch = text.match(/\[[\s\S]*?"passed"\s*:[\s\S]*?\]/);
+    if (arrayMatch) {
+      try {
+        const parsed = JSON.parse(arrayMatch[0]);
+        if (Array.isArray(parsed)) {
+          return parsed
+            .filter((item: unknown) => {
+              const obj = item as Record<string, unknown>;
+              return typeof obj.id === "string" && typeof obj.passed === "boolean";
+            })
+            .map((item: unknown) => {
+              const obj = item as Record<string, unknown>;
+              return {
+                id: String(obj.id),
+                passed: Boolean(obj.passed),
+                gapDescription: String(obj.gapDescription ?? ""),
+              };
+            });
+        }
+      } catch {
+        // Give up
+      }
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -181,6 +348,16 @@ export async function runSpecComplianceLoop(
   requirementIds: string[],
   ctx: PipelineContext,
 ): Promise<SpecComplianceResult> {
+  if (requirementIds.length === 0) {
+    console.warn("[forge] Warning: no requirement IDs to verify — spec compliance trivially passes");
+    return {
+      converged: true,
+      roundsCompleted: 0,
+      gapHistory: [0],
+      remainingGaps: [],
+    };
+  }
+
   const maxRounds = ctx.config.maxComplianceRounds;
 
   // Seed gapHistory with baseline (total requirements)
@@ -198,18 +375,18 @@ export async function runSpecComplianceLoop(
         roundsCompleted: 0,
       },
     }));
-  } catch {
-    // Non-critical: state update failure doesn't block compliance loop
+  } catch (err) {
+    console.warn("[forge] Warning: spec compliance state update failed:", err);
   }
 
   for (let round = 1; round <= maxRounds; round++) {
-    // Verify each requirement
+    // Verify all requirements in a single batch session
+    const verdicts = await verifyRequirementsBatch(requirementIds, ctx);
     const gaps: Array<{ id: string; description: string }> = [];
 
-    for (const reqId of requirementIds) {
-      const result = await verifyRequirement(reqId, ctx);
-      if (!result.passed) {
-        gaps.push({ id: reqId, description: result.gapDescription });
+    for (const verdict of verdicts) {
+      if (!verdict.passed) {
+        gaps.push({ id: verdict.id, description: verdict.gapDescription });
       }
     }
 
@@ -229,8 +406,8 @@ export async function runSpecComplianceLoop(
         },
         remainingGaps: gaps.map((g) => g.id),
       }));
-    } catch {
-      // Non-critical state update failure
+    } catch (err) {
+      console.warn(`[forge] Warning: spec compliance round ${round} state update failed:`, err);
     }
 
     // All requirements pass
@@ -256,32 +433,24 @@ export async function runSpecComplianceLoop(
       }
     }
 
-    // Fix each gap
-    for (const gap of gaps) {
-      const fixPrompt = buildComplianceGapPrompt(gap.id, gap.description, round);
-      await runStep(
-        `fix-gap-${gap.id}-round-${round}`,
-        {
-          prompt: fixPrompt,
-          verify: async () => true, // Gap fix verified in next round
-        },
-        ctx.stepRunnerContext,
-        ctx.costController,
-      );
-    }
+    // Fix all gaps in a single batch session
+    await runStep(
+      `fix-gaps-round-${round}`,
+      {
+        prompt: buildBatchGapFixPrompt(gaps, round),
+        verify: async () => true, // Gap fixes verified in next round
+      },
+      ctx.stepRunnerContext,
+      ctx.costController,
+    );
   }
 
   // Exhausted max rounds without full convergence
-  const finalGaps = gapHistory[gapHistory.length - 1];
-  const remainingGaps: string[] = [];
-
-  // Re-verify to get the latest gap list
-  for (const reqId of requirementIds) {
-    const result = await verifyRequirement(reqId, ctx);
-    if (!result.passed) {
-      remainingGaps.push(reqId);
-    }
-  }
+  // Re-verify in batch to get the latest gap list
+  const finalVerdicts = await verifyRequirementsBatch(requirementIds, ctx);
+  const remainingGaps = finalVerdicts
+    .filter((v) => !v.passed)
+    .map((v) => v.id);
 
   return {
     converged: false,

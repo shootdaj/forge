@@ -110,8 +110,8 @@ export async function runPhase(
         },
       };
     });
-  } catch {
-    // State update is non-critical -- continue even if it fails
+  } catch (err) {
+    console.warn(`[forge] Warning: failed to update phase ${phaseNumber} state to in_progress:`, err);
   }
 
   // 4. Get phase requirement IDs
@@ -166,6 +166,7 @@ export async function runPhase(
     }
 
     // 9. Verification (skip if verificationDone)
+    let verificationPassed = true;
     if (!checkpoints.verificationDone) {
       const report = await verifyBuild(phaseNumber, phaseDir, ctx);
 
@@ -185,6 +186,10 @@ export async function runPhase(
 
         // Run gap closure
         await runGapClosure(phaseNumber, phaseDir, report, ctx);
+
+        // Re-verify after gap closure
+        const postGapReport = await verifyBuild(phaseNumber, phaseDir, ctx);
+        verificationPassed = postGapReport.passed;
       }
 
       if (!completedSubsteps.includes("gap-closure")) {
@@ -203,7 +208,16 @@ export async function runPhase(
       }
     }
 
-    // 12. Update state: set phase status to 'completed'
+    // 12. Update state based on verification result
+    if (!verificationPassed) {
+      await updatePhaseState(ctx, phaseNumber, "partial");
+      return {
+        status: "partial",
+        completedSubsteps,
+        lastError: "Verification failed after gap closure",
+      };
+    }
+
     await updatePhaseState(ctx, phaseNumber, "completed");
 
     // 13. Return success
@@ -283,6 +297,7 @@ async function verifyAndFixPlan(
       contextContent,
       result.missingRequirements,
       `Plan is missing coverage for these requirements: ${result.missingRequirements.join(", ")}`,
+      phaseDir,
     );
 
     // Attempt re-plan
@@ -346,7 +361,7 @@ async function updatePhaseState(
         },
       };
     });
-  } catch {
-    // State update is non-critical -- continue even if it fails
+  } catch (err) {
+    console.warn(`[forge] Warning: failed to update phase ${phaseNumber} state to ${status}:`, err);
   }
 }

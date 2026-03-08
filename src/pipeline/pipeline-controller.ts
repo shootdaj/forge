@@ -239,6 +239,15 @@ async function executeWave1(
       const phase = phaseMap.get(phaseNumber);
       if (!phase) continue;
 
+      // Skip if any dependency phase failed or was not completed
+      const depsNotMet = phase.dependsOn.some(
+        (dep) => !phasesCompleted.includes(dep),
+      );
+      if (depsNotMet && phase.dependsOn.length > 0) {
+        phasesFailed.push(phaseNumber);
+        continue;
+      }
+
       // Detect external services
       const detectedServices = mockManager.detectExternalServices(
         phase.description,
@@ -377,7 +386,7 @@ async function executeFromWave2(
 
       const combinedPrompt = [integrationPrompt, "", swapPrompt].join("\n");
 
-      await runStep(
+      const integrationResult = await runStep(
         "integrate-real-services",
         {
           prompt: combinedPrompt,
@@ -387,6 +396,7 @@ async function executeFromWave2(
         ctx.costController,
       );
     }
+
 
     // Address skipped items (PIPE-06)
     if (state.skippedItems.length > 0) {
@@ -616,8 +626,8 @@ async function safeUpdateState(
       ...state,
       ...fields,
     }));
-  } catch {
-    // State update is non-critical -- continue even if it fails
+  } catch (err) {
+    console.warn("[forge] Warning: state update failed:", err);
   }
 }
 

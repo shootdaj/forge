@@ -74,6 +74,7 @@ export async function generatePhaseReport(
     verificationContent,
     gapsContent,
     contextContent,
+    phaseDir,
   );
 
   const result = await runStep(

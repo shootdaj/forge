@@ -656,8 +656,8 @@ describe("Phase Runner Scenarios", () => {
 
     const result = await runPhase(1, ctx, { requirementIds: reqIds });
 
-    // Phase completes (gap closure doesn't block phase report)
-    expect(result.status).toBe("completed");
+    // Phase returns partial (verification still fails after gap closure)
+    expect(result.status).toBe("partial");
 
     // Exactly 2 diagnosis rounds (MAX_GAP_CLOSURE_ROUNDS)
     expect(diagnosisCallCount).toBe(2);

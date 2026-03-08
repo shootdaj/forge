@@ -36,6 +36,17 @@ function makeConfig(overrides: Partial<VerifierConfig> = {}): VerifierConfig {
   };
 }
 
+/**
+ * Mock existsSync so that source directories exist.
+ */
+function mockSourceDirsExist() {
+  mockedExistsSync.mockImplementation((filePath: fs.PathLike) => {
+    const pathStr = String(filePath);
+    if (pathStr.includes("/src")) return true;
+    return false;
+  });
+}
+
 describe("Observability Verifier", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -47,7 +58,14 @@ describe("Observability Verifier", () => {
 
   describe("TestObservabilityVerifier_AllChecksPass", () => {
     it("passes when health endpoint and logging are found", async () => {
-      mockedExistsSync.mockReturnValue(true); // src/ exists
+      mockSourceDirsExist();
+
+      // Server indicator check: found
+      mockedExec.mockResolvedValueOnce({
+        stdout: "src/server.ts\n",
+        stderr: "",
+        exitCode: 0,
+      });
 
       // Health endpoint found
       mockedExec.mockResolvedValueOnce({
@@ -84,7 +102,14 @@ describe("Observability Verifier", () => {
 
   describe("TestObservabilityVerifier_NoHealthEndpoint", () => {
     it("fails when health endpoint is missing", async () => {
-      mockedExistsSync.mockReturnValue(true);
+      mockSourceDirsExist();
+
+      // Server indicator check: found
+      mockedExec.mockResolvedValueOnce({
+        stdout: "src/server.ts\n",
+        stderr: "",
+        exitCode: 0,
+      });
 
       // Health endpoint NOT found
       mockedExec.mockResolvedValueOnce({
@@ -115,21 +140,47 @@ describe("Observability Verifier", () => {
     });
   });
 
-  describe("TestObservabilityVerifier_NoSrcDirectory", () => {
-    it("skips when src/ directory does not exist", async () => {
+  describe("TestObservabilityVerifier_NoSourceDirectories", () => {
+    it("skips when no source directories exist", async () => {
       mockedExistsSync.mockReturnValue(false);
 
       const result = await observabilityVerifier(makeConfig());
 
       expect(result.passed).toBe(true);
       expect(result.details[0]).toContain("Skipped");
-      expect(result.details[0]).toContain("src/");
+      expect(result.details[0]).toContain("source directories");
+    });
+  });
+
+  describe("TestObservabilityVerifier_NotAServer", () => {
+    it("skips when project is not a server/service", async () => {
+      mockSourceDirsExist();
+
+      // Server indicator check: not found
+      mockedExec.mockResolvedValueOnce({
+        stdout: "",
+        stderr: "",
+        exitCode: 1,
+      });
+
+      const result = await observabilityVerifier(makeConfig());
+
+      expect(result.passed).toBe(true);
+      expect(result.details[0]).toContain("Skipped");
+      expect(result.details[0]).toContain("server");
     });
   });
 
   describe("TestObservabilityVerifier_HealthOnlyNoLogging", () => {
     it("passes when health endpoint found but no structured/error logging (warn only)", async () => {
-      mockedExistsSync.mockReturnValue(true);
+      mockSourceDirsExist();
+
+      // Server indicator check: found
+      mockedExec.mockResolvedValueOnce({
+        stdout: "src/app.ts\n",
+        stderr: "",
+        exitCode: 0,
+      });
 
       // Health endpoint found
       mockedExec.mockResolvedValueOnce({

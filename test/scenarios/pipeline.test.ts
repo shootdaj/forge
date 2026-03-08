@@ -267,6 +267,19 @@ function createScenarioPipelineContext(options: {
   } as any;
 
   const defaultExecuteQuery = async (opts: any): Promise<any> => {
+    // Handle batch verification (all pass)
+    if (opts.prompt?.includes("Verify whether each of the following requirements")) {
+      const reqIds = opts.prompt.match(/- ([\w-]+)/g)?.map((m: string) => m.slice(2)) ?? [];
+      const verdicts = reqIds.map((id: string) => ({ id, passed: true, gapDescription: "" }));
+      return {
+        ok: true,
+        result: "```json\n" + JSON.stringify(verdicts) + "\n```",
+        structuredOutput: null,
+        cost: { totalCostUsd: 0.01 },
+        sessionId: "mock-session",
+      };
+    }
+    // Handle individual verification (fallback)
     if (opts.prompt?.includes("Verify whether requirement")) {
       return {
         ok: true,
@@ -455,9 +468,9 @@ describe("Pipeline Scenarios: Happy Path", () => {
     // 3. Step calls include compliance verification, UAT, and milestone
     const calls = getStepCalls();
     const verifyCalls = calls.filter((c) =>
-      c.prompt.includes("Verify whether requirement"),
+      c.prompt.includes("Verify whether"),
     );
-    expect(verifyCalls.length).toBeGreaterThanOrEqual(12);
+    expect(verifyCalls.length).toBeGreaterThanOrEqual(1);
 
     const uatCalls = calls.filter(
       (c) => c.name.startsWith("uat-") || c.prompt.includes("UAT Test:"),
@@ -620,6 +633,24 @@ describe("Pipeline Scenarios: Failures", () => {
       executeQueryBehavior: async (opts: any) => {
         const prompt = opts.prompt as string;
 
+        // Handle batch verification (all fail)
+        if (prompt.includes("Verify whether each of the following requirements")) {
+          const reqIds = prompt.match(/- ([\w-]+)/g)?.map((m: string) => m.slice(2)) ?? [];
+          const verdicts = reqIds.map((id: string) => ({
+            id,
+            passed: false,
+            gapDescription: "Feature not implemented correctly",
+          }));
+          return {
+            ok: true,
+            result: "```json\n" + JSON.stringify(verdicts) + "\n```",
+            structuredOutput: null,
+            cost: { totalCostUsd: 0.01 },
+            sessionId: "mock",
+          };
+        }
+
+        // Handle individual verification (fallback)
         if (prompt.includes("Verify whether requirement")) {
           return {
             ok: true,
@@ -666,12 +697,13 @@ describe("Pipeline Scenarios: Failures", () => {
    *
    * Requirements: PIPE-01
    */
-  it("TestPipelineScenario_PhaseFails_ContinuesOthers", async () => {
+  it("TestPipelineScenario_PhaseFails_SkipsDependents", async () => {
+    // Phase 2 fails. Phase 3 depends only on Phase 1 (independent), so it runs.
+    // Phase 4 depends on Phase 2 + Phase 3, so it's skipped (Phase 2 failed).
     const { ctx, getRunPhaseCalls, getState } = createScenarioPipelineContext({
       roadmapContent: FULL_ROADMAP_WITH_SERVICES,
       runPhaseFnBehavior: async (phaseNumber, _ctx, _opts) => {
         if (phaseNumber === 2) {
-          // Phase 2 fails
           return {
             status: "failed",
             reason: "Stripe SDK import failed",
@@ -682,19 +714,16 @@ describe("Pipeline Scenarios: Failures", () => {
       },
     });
 
-    // This will hit checkpoint due to service detection in roadmap
     const result = await runPipeline(ctx);
 
-    // All phases should have been attempted
+    // Phases 1, 2, 3 attempted; Phase 4 skipped (depends on failed Phase 2)
     const calls = getRunPhaseCalls();
     const phasesAttempted = calls.map((c) => c.phaseNumber);
     expect(phasesAttempted).toContain(1);
     expect(phasesAttempted).toContain(2);
     expect(phasesAttempted).toContain(3);
-    expect(phasesAttempted).toContain(4);
-
-    // Phase 2 failed but pipeline didn't halt
-    expect(calls.length).toBe(4); // All 4 phases attempted
+    expect(phasesAttempted).not.toContain(4); // skipped: depends on failed phase 2
+    expect(calls.length).toBe(3);
   });
 });
 
@@ -806,7 +835,7 @@ describe("Pipeline Scenarios: Resume", () => {
     // Compliance verification and UAT/milestone steps should be present
     const steps = getStepCalls();
     const complianceCalls = steps.filter(
-      (c) => c.prompt.includes("Verify whether requirement"),
+      (c) => c.prompt.includes("Verify whether"),
     );
     // Should verify requirements from the roadmap loaded during Wave 2 setup
     expect(complianceCalls.length).toBeGreaterThanOrEqual(0);

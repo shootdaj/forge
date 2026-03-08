@@ -28,6 +28,10 @@ export function snakeToCamel(str: string): string {
  *   "dockerComposeFile" -> "docker_compose_file"
  */
 export function camelToSnake(str: string): string {
+  // Preserve keys that are already SCREAMING_SNAKE_CASE or numeric (e.g. env vars, phase IDs)
+  if (/^[A-Z0-9_]+$/.test(str) || /^\d+$/.test(str)) {
+    return str;
+  }
   return str.replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`);
 }
 

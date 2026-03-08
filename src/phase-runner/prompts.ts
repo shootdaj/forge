@@ -28,6 +28,7 @@ export function buildContextPrompt(
   phaseNumber: number,
   phaseGoal: string,
   roadmapContent: string,
+  phaseDir?: string,
 ): string {
   return `You are gathering context for Phase ${phaseNumber} of a software project.
 
@@ -44,7 +45,9 @@ Analyze the phase goal and identify:
 2. **Implementation decisions** -- technology choices, patterns, and architectural approach
 3. **Deferred ideas** -- things that came up but belong in a later phase
 
-Write a CONTEXT.md file in the phase directory with the following structure:
+Write a CONTEXT.md file to the EXACT path: \`${phaseDir ?? `.planning/phases/${String(phaseNumber).padStart(2, "0")}-phase-${phaseNumber}`}/CONTEXT.md\`
+
+Use this structure:
 
 \`\`\`markdown
 # Phase ${phaseNumber}: [Phase Name] - Context
@@ -94,6 +97,7 @@ export function buildPlanPrompt(
   contextContent: string,
   roadmapContent: string,
   requirementIds: string[],
+  phaseDir?: string,
 ): string {
   const reqList =
     requirementIds.length > 0
@@ -113,7 +117,9 @@ The plan MUST address these requirement IDs: ${reqList}
 
 ## Your Task
 
-Create a PLAN.md file in the phase directory following GSD plan-phase methodology:
+Create a PLAN.md file at the EXACT path: \`${phaseDir ?? `.planning/phases/${String(phaseNumber).padStart(2, "0")}-phase-${phaseNumber}`}/PLAN.md\`
+
+Follow GSD plan-phase methodology:
 
 1. **Frontmatter** with phase, plan number, type, dependencies, and requirement IDs
 2. **Objective** describing what this plan accomplishes
@@ -149,6 +155,7 @@ export function buildReplanPrompt(
   contextContent: string,
   missingRequirements: string[],
   feedback: string,
+  phaseDir?: string,
 ): string {
   return `You need to revise the PLAN.md for Phase ${phaseNumber}.
 
@@ -164,14 +171,14 @@ ${missingRequirements.map((id) => `- ${id}`).join("\n")}
 
 ## Your Task
 
-Read the existing PLAN.md in the phase directory and revise it to:
+Read the existing PLAN.md at \`${phaseDir ?? `.planning/phases/${String(phaseNumber).padStart(2, "0")}-phase-${phaseNumber}`}/PLAN.md\` and revise it to:
 1. Add tasks that cover ALL missing requirement IDs listed above
 2. Ensure each missing requirement has at least one task implementing it
 3. Include test tasks for any new components added
 4. Maintain sequential task numbering
 5. Keep all existing tasks that were correct
 
-Write the updated PLAN.md to the same location.`;
+Write the updated PLAN.md to the same path.`;
 }
 
 /**
@@ -358,6 +365,7 @@ export function buildReportPrompt(
   verificationContent: string,
   gapsContent: string | null,
   contextContent: string,
+  phaseDir?: string,
 ): string {
   const gapsSection = gapsContent
     ? `\n## Gap Closure History\n${gapsContent}\n`
@@ -384,5 +392,5 @@ Create a PHASE_REPORT.md file summarizing this phase's execution:
 7. **Files Created/Modified** -- key files touched
 8. **Next Steps** -- what the next phase needs to know
 
-Write PHASE_REPORT.md to the phase directory.`;
+Write PHASE_REPORT.md to the EXACT path: \`${phaseDir ?? `.planning/phases/${String(phaseNumber).padStart(2, "0")}-phase-${phaseNumber}`}/PHASE_REPORT.md\``;
 }

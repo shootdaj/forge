@@ -188,6 +188,69 @@ export function createCli(): Command {
           );
         }
 
+        // Generate roadmap from SPEC + requirements using Agent SDK
+        try {
+          console.log("Generating roadmap...");
+          const specContent = fs.existsSync("SPEC.md")
+            ? fs.readFileSync("SPEC.md", "utf-8")
+            : "";
+          const reqContent = fs.existsSync("REQUIREMENTS.md")
+            ? fs.readFileSync("REQUIREMENTS.md", "utf-8")
+            : "";
+
+          const roadmapResult = await executeQuery({
+            prompt: `You are a software architect. Based on the SPEC and REQUIREMENTS below, create a phased development roadmap.
+
+Output ONLY the roadmap in this exact markdown format (no other text):
+
+# Roadmap
+
+## Execution Plan
+
+### Phase 1: <Name>
+**Goal**: <One sentence>
+**Depends on**: Nothing
+**Requirements**: <comma-separated requirement IDs from REQUIREMENTS.md, e.g. R21, R22>
+
+### Phase 2: <Name>
+**Goal**: <One sentence>
+**Depends on**: Phase 1
+**Requirements**: <requirement IDs>
+
+...continue for all phases needed...
+
+Rules:
+- Break the project into 3-6 phases
+- Phase 1 should be project scaffolding + core data model
+- Each phase should be independently testable
+- List dependencies accurately (which phases must complete first)
+- Map every requirement ID to exactly one phase
+- Keep phases focused — each should take 1-3 SDK query calls to build
+
+SPEC:
+${specContent}
+
+REQUIREMENTS:
+${reqContent}`,
+            model: config.model,
+            cwd: process.cwd(),
+            maxBudgetUsd: 1,
+            maxTurns: 5,
+          });
+
+          if (roadmapResult.ok && roadmapResult.result) {
+            fs.mkdirSync(".planning", { recursive: true });
+            fs.writeFileSync(".planning/ROADMAP.md", roadmapResult.result, "utf-8");
+            console.log("Roadmap generated: .planning/ROADMAP.md");
+          } else {
+            console.warn("Roadmap generation returned no result. You can create .planning/ROADMAP.md manually.");
+          }
+        } catch (roadmapErr) {
+          console.warn(
+            `Roadmap generation failed: ${roadmapErr instanceof Error ? roadmapErr.message : String(roadmapErr)}. Create .planning/ROADMAP.md manually.`,
+          );
+        }
+
         // Create Notion documentation pages if parentPageId is configured
         if (config.notion.parentPageId) {
           try {

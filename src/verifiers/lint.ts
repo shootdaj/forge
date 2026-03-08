@@ -1,24 +1,58 @@
 /**
  * Lint Verifier (VER-04)
  *
- * Runs the configured lint command and uses exit code as primary signal.
+ * Runs the project's lint command. Auto-detects the lint tool if not configured.
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { Verifier, VerifierResult } from "./types.js";
+import { skippedResult } from "./types.js";
 import { execWithTimeout } from "./utils.js";
+
+/**
+ * Detect the lint command for the project.
+ * Checks package.json scripts, then looks for common lint configs.
+ */
+function detectLintCommand(cwd: string): string | null {
+  // Check package.json for a lint script
+  try {
+    const pkgPath = path.resolve(cwd, "package.json");
+    if (fs.existsSync(pkgPath)) {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+      if (pkg.scripts?.lint) return "npm run lint";
+    }
+  } catch {
+    // ignore parse errors
+  }
+
+  // Check for common lint configs
+  const eslintConfigs = [".eslintrc", ".eslintrc.js", ".eslintrc.json", ".eslintrc.yml", "eslint.config.js", "eslint.config.mjs"];
+  for (const config of eslintConfigs) {
+    if (fs.existsSync(path.resolve(cwd, config))) {
+      return "npx eslint . --no-color";
+    }
+  }
+
+  // Check for biome
+  if (fs.existsSync(path.resolve(cwd, "biome.json"))) {
+    return "npx biome check .";
+  }
+
+  return null;
+}
 
 /**
  * Verify that the project passes linting.
  *
- * Behavior:
- * - Runs `eslint src/ --no-color` as default lint command
- * - Uses exit code as primary pass/fail signal
- * - Captures first 50 lines of output for error reporting
- *
  * Requirement: VER-04
  */
 export const lintVerifier: Verifier = async (config): Promise<VerifierResult> => {
-  const lintCommand = "eslint src/ --no-color";
+  const lintCommand = detectLintCommand(config.cwd);
+
+  if (!lintCommand) {
+    return skippedResult("lint", "No lint configuration found");
+  }
 
   const result = await execWithTimeout(lintCommand, config.cwd, 30_000);
 
@@ -28,7 +62,7 @@ export const lintVerifier: Verifier = async (config): Promise<VerifierResult> =>
   return {
     passed,
     verifier: "lint",
-    details: [`Lint check: ${passed ? "passed" : "failed"}`],
+    details: [`Lint check (${lintCommand}): ${passed ? "passed" : "failed"}`],
     errors: passed
       ? []
       : combinedOutput
