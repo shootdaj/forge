@@ -115,4 +115,22 @@ describe("checkDeploymentHealth", () => {
       expect.any(Object),
     );
   });
+
+  it("passes custom headers (e.g., Vercel protection bypass)", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ status: 200 });
+
+    await checkDeploymentHealth({
+      url: "https://my-app.vercel.app",
+      fetchFn: mockFetch,
+      retries: 0,
+      headers: { "x-vercel-protection-bypass": "secret123" },
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://my-app.vercel.app/",
+      expect.objectContaining({
+        headers: { "x-vercel-protection-bypass": "secret123" },
+      }),
+    );
+  });
 });

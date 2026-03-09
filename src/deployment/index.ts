@@ -4,7 +4,7 @@
  * Exports the deployment orchestrator, health checker, and types.
  */
 
-export { runDeployment, isWebApp, extractDeployedUrl, extractDeployFailure, extractSmokeTestResult } from "./deployer.js";
+export { runDeployment, isWebApp, extractDeployedUrl, extractDeployFailure, extractSmokeTestResult, extractProtectionBypass } from "./deployer.js";
 export { checkDeploymentHealth } from "./health-check.js";
 export { buildDeployPrompt, buildDeployFixPrompt, buildSmokeTestPrompt } from "./prompts.js";
 export type {

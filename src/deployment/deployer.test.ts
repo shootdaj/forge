@@ -11,6 +11,7 @@ import {
   extractDeployedUrl,
   extractDeployFailure,
   extractSmokeTestResult,
+  extractProtectionBypass,
   runDeployment,
 } from "./deployer.js";
 import { buildSmokeTestPrompt, buildDeployPrompt } from "./prompts.js";
@@ -95,6 +96,27 @@ describe("extractDeployFailure", () => {
 
   it("returns null when no failure", () => {
     expect(extractDeployFailure("Deployment succeeded")).toBeNull();
+  });
+});
+
+describe("extractProtectionBypass", () => {
+  it("extracts bypass token from output", () => {
+    const output = "Setting up bypass...\nPROTECTION_BYPASS: abc123secret\nDone.";
+    expect(extractProtectionBypass(output)).toBe("abc123secret");
+  });
+
+  it("returns null when no bypass token", () => {
+    expect(extractProtectionBypass("Deployed successfully")).toBeNull();
+  });
+
+  it("handles case insensitivity", () => {
+    expect(extractProtectionBypass("protection_bypass: mytoken"))
+      .toBe("mytoken");
+  });
+
+  it("strips trailing punctuation", () => {
+    expect(extractProtectionBypass("PROTECTION_BYPASS: token123."))
+      .toBe("token123");
   });
 });
 
@@ -374,6 +396,16 @@ describe("buildDeployPrompt platform warnings", () => {
     expect(prompt).toContain("SQLite");
     expect(prompt).toContain("serverless");
     expect(prompt).toContain("CRITICAL");
+  });
+
+  it("instructs Vercel to disable deployment protection", () => {
+    const prompt = buildDeployPrompt({
+      target: "vercel",
+      environments: ["production"],
+      projectDir: "/project",
+    });
+    expect(prompt).toContain("Deployment Protection");
+    expect(prompt).toContain("PROTECTION_BYPASS");
   });
 
   it("warns about SQLite on Netlify", () => {
