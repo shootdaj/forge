@@ -3,7 +3,7 @@
  *
  * The main orchestrator that composes all pipeline modules into the wave model:
  * Wave 1 (build with mocks) -> Human Checkpoint -> Wave 2 (real integrations) ->
- * Wave 3+ (spec compliance) -> UAT gate -> Milestone completion.
+ * Wave 3+ (spec compliance) -> UAT gate -> Deployment -> Milestone completion.
  *
  * This is the function that `forge run` (Phase 7) will call.
  *
@@ -23,6 +23,8 @@ import { runSpecComplianceLoop } from "./spec-compliance.js";
 import { buildIntegrationPrompt, buildSkippedItemPrompt } from "./prompts.js";
 import { runUAT } from "../uat/index.js";
 import type { UATContext, UATResult } from "../uat/types.js";
+import { runDeployment } from "../deployment/deployer.js";
+import type { DeploymentContext } from "../deployment/types.js";
 
 import type {
   PipelineContext,
@@ -31,6 +33,7 @@ import type {
   ServiceDetection,
   SkippedItem,
   WaveResult,
+  SpecComplianceResult,
 } from "./types.js";
 import type { PhaseRunnerContext } from "../phase-runner/types.js";
 import type { ForgeState } from "../state/schema.js";
@@ -62,7 +65,7 @@ function buildPhaseRunnerCtx(ctx: PipelineContext): PhaseRunnerContext {
  * Run the full pipeline FSM.
  *
  * State transitions:
- * initializing -> wave_1 -> human_checkpoint -> wave_2 -> wave_3 -> uat -> completed
+ * initializing -> wave_1 -> human_checkpoint -> wave_2 -> wave_3 -> uat -> deploying -> completed
  * Any wave can transition to "failed" on error.
  * Wave 3+ can transition to "stuck" if compliance doesn't converge.
  *
@@ -93,6 +96,7 @@ export async function runPipeline(
         gapHistory: state.specCompliance.gapHistory,
         remainingGaps: state.remainingGaps,
       },
+      deploymentUrl: state.deployment?.url || undefined,
     };
   }
 
@@ -100,7 +104,7 @@ export async function runPipeline(
     return {
       status: "failed",
       wave: state.currentWave,
-      reason: "Pipeline previously failed",
+      reason: "Pipeline previously failed. Use `forge resume --from <stage>` to retry from a specific stage.",
       phasesCompletedSoFar: getCompletedPhaseNumbers(state),
       phasesFailed: getFailedPhaseNumbers(state),
     };
@@ -109,6 +113,12 @@ export async function runPipeline(
   // If resuming from human_checkpoint, skip directly to Wave 2
   if (state.status === "human_checkpoint") {
     return await executeFromWave2(ctx, state);
+  }
+
+  // If resuming from a mid-pipeline stage, jump directly there
+  if (state.status === "wave_2" || state.status === "wave_3" ||
+      state.status === "uat" || state.status === "deploying") {
+    return await executeFromStage(ctx, state);
   }
 
   // Load roadmap and parse execution waves
@@ -200,6 +210,32 @@ export async function runPipeline(
 
   // No checkpoint needed -- continue to Wave 2
   return await executeFromWave2(ctx, stateAfterWave1, allRequirementIds);
+}
+
+// ---------------------------------------------------------------------------
+// Stage dispatcher (for resuming from any stage)
+// ---------------------------------------------------------------------------
+
+/**
+ * Dispatch to the correct pipeline stage based on current state status.
+ * Used when resuming from wave_2, wave_3, uat, or deploying.
+ */
+async function executeFromStage(
+  ctx: PipelineContext,
+  state: ForgeState,
+): Promise<PipelineResult> {
+  switch (state.status) {
+    case "wave_2":
+      return await executeFromWave2(ctx, state);
+    case "wave_3":
+      return await executeFromWave3(ctx);
+    case "uat":
+      return await executeFromUAT(ctx);
+    case "deploying":
+      return await executeFromDeployment(ctx);
+    default:
+      return await executeFromWave2(ctx, state);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -333,7 +369,7 @@ async function executeWave1(
 }
 
 // ---------------------------------------------------------------------------
-// Wave 2+ execution (resume entry point)
+// Wave 2 execution (mock-to-real swap)
 // ---------------------------------------------------------------------------
 
 async function executeFromWave2(
@@ -341,22 +377,6 @@ async function executeFromWave2(
   state: ForgeState,
   allRequirementIds?: string[],
 ): Promise<PipelineResult> {
-  // If no requirement IDs were passed, reconstruct from roadmap
-  let reqIds = allRequirementIds;
-  if (!reqIds) {
-    try {
-      const fs = ctx.fs ?? (await import("node:fs"));
-      const roadmapContent = fs.readFileSync(
-        ".planning/ROADMAP.md",
-        "utf-8",
-      ) as string;
-      const { phases } = getExecutionWaves(roadmapContent);
-      reqIds = collectAllRequirementIds(phases);
-    } catch {
-      reqIds = [];
-    }
-  }
-
   // =========================================================================
   // Wave 2: Real integrations (PIPE-05, PIPE-06)
   // =========================================================================
@@ -386,7 +406,7 @@ async function executeFromWave2(
 
       const combinedPrompt = [integrationPrompt, "", swapPrompt].join("\n");
 
-      const integrationResult = await runStep(
+      await runStep(
         "integrate-real-services",
         {
           prompt: combinedPrompt,
@@ -428,25 +448,48 @@ async function executeFromWave2(
     };
   }
 
-  // =========================================================================
-  // Wave 3+: Spec compliance (delegates to runSpecComplianceLoop)
-  // =========================================================================
+  // Continue to Wave 3
+  return await executeFromWave3(ctx, allRequirementIds);
+}
 
-  let complianceResult;
+// ---------------------------------------------------------------------------
+// Wave 3: Spec compliance
+// ---------------------------------------------------------------------------
+
+async function executeFromWave3(
+  ctx: PipelineContext,
+  allRequirementIds?: string[],
+): Promise<PipelineResult> {
+  // Reconstruct requirement IDs if not provided
+  let reqIds = allRequirementIds;
+  if (!reqIds) {
+    reqIds = await reconstructRequirementIds(ctx);
+  }
+
+  let complianceResult: SpecComplianceResult;
   try {
     await safeUpdateState(ctx, { status: "wave_3", currentWave: 3 });
 
     complianceResult = await runSpecComplianceLoop(reqIds, ctx);
 
     if (!complianceResult.converged) {
-      await safeUpdateState(ctx, { status: "failed" });
-      return {
-        status: "stuck",
-        wave: 3,
-        reason: `Spec compliance did not converge after ${complianceResult.roundsCompleted} rounds`,
-        nonConverging: true,
-        gapHistory: complianceResult.gapHistory,
-      };
+      if (didMakeProgress(complianceResult.gapHistory)) {
+        // Made progress but didn't fully converge — continue to UAT with warning
+        console.warn(
+          `[forge] Warning: Spec compliance did not fully converge after ${complianceResult.roundsCompleted} rounds. ` +
+          `Remaining gaps: ${complianceResult.remainingGaps.join(", ")}. Continuing to UAT.`,
+        );
+      } else {
+        // Genuinely stuck — gaps not decreasing
+        await safeUpdateState(ctx, { status: "failed" });
+        return {
+          status: "stuck",
+          wave: 3,
+          reason: `Spec compliance did not converge after ${complianceResult.roundsCompleted} rounds`,
+          nonConverging: true,
+          gapHistory: complianceResult.gapHistory,
+        };
+      }
     }
   } catch (error) {
     const reason =
@@ -461,9 +504,28 @@ async function executeFromWave2(
     };
   }
 
-  // =========================================================================
-  // UAT gate (PIPE-09)
-  // =========================================================================
+  // Continue to UAT
+  return await executeFromUAT(ctx, complianceResult);
+}
+
+// ---------------------------------------------------------------------------
+// UAT gate
+// ---------------------------------------------------------------------------
+
+async function executeFromUAT(
+  ctx: PipelineContext,
+  complianceResult?: SpecComplianceResult,
+): Promise<PipelineResult> {
+  // If no compliance result (resuming directly into UAT), reconstruct from state
+  if (!complianceResult) {
+    const stateNow = ctx.stateManager.load();
+    complianceResult = {
+      converged: stateNow.remainingGaps.length === 0,
+      roundsCompleted: stateNow.specCompliance.roundsCompleted,
+      gapHistory: stateNow.specCompliance.gapHistory,
+      remainingGaps: stateNow.remainingGaps,
+    };
+  }
 
   try {
     await safeUpdateState(ctx, { status: "uat" });
@@ -492,7 +554,7 @@ async function executeFromWave2(
     });
 
     if (uatResult.status === "passed") {
-      // Continue to milestone completion
+      // Continue to deployment
     } else if (uatResult.status === "failed") {
       await safeUpdateState(ctx, { status: "failed" });
       return {
@@ -526,6 +588,62 @@ async function executeFromWave2(
       phasesCompletedSoFar: getCompletedPhaseNumbers(ctx.stateManager.load()),
       phasesFailed: getFailedPhaseNumbers(ctx.stateManager.load()),
     };
+  }
+
+  // Continue to deployment
+  return await executeFromDeployment(ctx, complianceResult);
+}
+
+// ---------------------------------------------------------------------------
+// Deployment
+// ---------------------------------------------------------------------------
+
+async function executeFromDeployment(
+  ctx: PipelineContext,
+  complianceResult?: SpecComplianceResult,
+): Promise<PipelineResult> {
+  // If no compliance result (resuming directly into deployment), reconstruct from state
+  if (!complianceResult) {
+    const stateNow = ctx.stateManager.load();
+    complianceResult = {
+      converged: stateNow.remainingGaps.length === 0,
+      roundsCompleted: stateNow.specCompliance.roundsCompleted,
+      gapHistory: stateNow.specCompliance.gapHistory,
+      remainingGaps: stateNow.remainingGaps,
+    };
+  }
+
+  let deploymentUrl: string | undefined;
+
+  try {
+    await safeUpdateState(ctx, { status: "deploying" });
+
+    const deployCtx: DeploymentContext = {
+      config: ctx.config,
+      stateManager: ctx.stateManager,
+      stepRunnerContext: ctx.stepRunnerContext,
+      costController: ctx.costController,
+      execFn: ctx.execFn,
+      runStepFn: ctx.runStepFn,
+      fetchFn: ctx.fetchFn,
+    };
+
+    const deployResult = await runDeployment(deployCtx);
+
+    if (deployResult.status === "deployed") {
+      deploymentUrl = deployResult.url;
+    } else if (deployResult.status === "failed") {
+      // Deployment failure is not fatal — app is built and tested, just not deployed
+      // Log but continue to milestone completion
+      console.warn(
+        `[forge] Warning: Deployment failed after ${deployResult.attempts.length} attempts: ${deployResult.reason}`,
+      );
+    }
+    // status === "skipped" — not a web app, continue normally
+  } catch (error) {
+    // Deployment errors are non-fatal — the software is built and tested
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn(`[forge] Warning: Deployment error: ${reason}`);
   }
 
   // =========================================================================
@@ -595,6 +713,7 @@ async function executeFromWave2(
       phasesCompleted: getCompletedPhaseNumbers(ctx.stateManager.load()),
       totalCostUsd: ctx.stateManager.load().totalBudgetUsed,
       specCompliance: complianceResult,
+      deploymentUrl,
     };
   } catch (error) {
     const reason =
@@ -613,6 +732,39 @@ async function executeFromWave2(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Determine if the compliance loop made progress even though it didn't fully converge.
+ *
+ * Progress means the final gap count is strictly less than the first round's gap count.
+ * gapHistory[0] is the baseline (total requirements), gapHistory[1] is round 1 result, etc.
+ *
+ * @param gapHistory - Array of gap counts per round
+ * @returns true if gaps decreased from round 1 to the final round
+ */
+export function didMakeProgress(gapHistory: number[]): boolean {
+  if (gapHistory.length < 3) return false; // Need baseline + at least 2 rounds
+  const firstRoundGaps = gapHistory[1];
+  const lastRoundGaps = gapHistory[gapHistory.length - 1];
+  return lastRoundGaps < firstRoundGaps;
+}
+
+/**
+ * Reconstruct requirement IDs from the roadmap file.
+ */
+async function reconstructRequirementIds(ctx: PipelineContext): Promise<string[]> {
+  try {
+    const fs = ctx.fs ?? (await import("node:fs"));
+    const roadmapContent = fs.readFileSync(
+      ".planning/ROADMAP.md",
+      "utf-8",
+    ) as string;
+    const { phases } = getExecutionWaves(roadmapContent);
+    return collectAllRequirementIds(phases);
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Safely update state fields without throwing.

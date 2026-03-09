@@ -91,3 +91,15 @@ Use semantic names: `Test<Component>_<Behavior>[_<Condition>]`
 - See `TEST_GUIDE.md` for requirement-to-test mapping
 - See `.claude/ax/references/testing-pyramid.md` for full methodology
 - Every requirement in ROADMAP.md must map to at least one scenario test
+
+## Bug Reports: Fix Root Cause in Forge
+
+When a user reports a bug in an app built by Forge (e.g., "login doesn't work", "links are 404"), **always trace the root cause back to Forge itself** before patching the app. The question is never "how do I fix this app?" — it's "why didn't Forge prevent/catch this?"
+
+Common root causes to check:
+1. **Missing deployment-awareness in prompts** — Did Forge tell the agent about the deployment target's constraints? (e.g., no SQLite on serverless)
+2. **UAT gaps** — Did UAT test the actual deployed URL or only local? Did it test core user flows (auth, data persistence)?
+3. **Verification gaps** — Are the verifiers checking the right things? (e.g., health check is HTTP 200, but is the app functionally working?)
+4. **Prompt gaps** — Do the prompts warn about known incompatibilities?
+
+Fix Forge first, then **use Forge to fix the app** — never manually patch the app. Re-run the appropriate Forge stage (`forge resume --from <stage>`) with the fixed pipeline. Forge must eat its own dogfood.

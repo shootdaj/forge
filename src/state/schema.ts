@@ -99,6 +99,19 @@ const UatResultsSchema = z.object({
 });
 
 /**
+ * Deployment tracking.
+ */
+const DeploymentStateSchema = z.object({
+  status: z
+    .enum(["not_started", "deploying", "deployed", "failed"])
+    .default("not_started"),
+  url: z.string().default(""),
+  target: z.string().default(""),
+  deployed_at: z.string().optional(),
+  attempts: z.number().int().default(0),
+});
+
+/**
  * Root state schema for forge-state.json.
  *
  * Tracks all orchestrator state as defined in SPEC.md.
@@ -118,6 +131,7 @@ export const ForgeStateSchema = z.object({
       "wave_2",
       "wave_3",
       "uat",
+      "deploying",
       "completed",
       "failed",
     ])
@@ -134,6 +148,7 @@ export const ForgeStateSchema = z.object({
   spec_compliance: z.any().default({}).pipe(SpecComplianceSchema),
   remaining_gaps: z.array(z.string()).default([]),
   uat_results: z.any().default({}).pipe(UatResultsSchema),
+  deployment: z.any().default({}).pipe(DeploymentStateSchema),
   total_budget_used: z.number().default(0),
 });
 
@@ -163,6 +178,7 @@ export type OrchestratorStatus =
   | "wave_2"
   | "wave_3"
   | "uat"
+  | "deploying"
   | "completed"
   | "failed";
 
@@ -236,6 +252,13 @@ export interface ForgeState {
     workflowsTested: number;
     workflowsPassed: number;
     workflowsFailed: number;
+  };
+  deployment: {
+    status: "not_started" | "deploying" | "deployed" | "failed";
+    url: string;
+    target: string;
+    deployedAt?: string;
+    attempts: number;
   };
   totalBudgetUsed: number;
 }

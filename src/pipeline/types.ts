@@ -78,6 +78,8 @@ export interface PipelineContext {
   execFn?: (cmd: string) => string;
   /** Optional runStep function for UAT testing (injected into UATContext) */
   runStepFn?: (...args: any[]) => Promise<any>;
+  /** Optional fetch function for deployment health checks (injected for testing) */
+  fetchFn?: (url: string, init?: RequestInit) => Promise<Response>;
 }
 
 // ---------------------------------------------------------------------------
@@ -97,6 +99,7 @@ export type PipelineResult =
       phasesCompleted: number[];
       totalCostUsd: number;
       specCompliance: SpecComplianceResult;
+      deploymentUrl?: string;
     }
   | {
       status: "checkpoint";
