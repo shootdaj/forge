@@ -10,7 +10,7 @@
  *               MOCK-01, MOCK-02, MOCK-03, MOCK-04
  */
 
-export { runPipeline } from "./pipeline-controller.js";
+export { runPipeline, didMakeProgress } from "./pipeline-controller.js";
 
 export {
   buildDependencyGraph,

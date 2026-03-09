@@ -12,6 +12,7 @@
  * Requirements: PIPE-04
  */
 
+import * as nodeFs from "node:fs";
 import type { ForgeState } from "../state/schema.js";
 import type { CheckpointReport, ServiceDetection, SkippedItem } from "./types.js";
 
@@ -152,7 +153,7 @@ export function writeCheckpointFile(
   outputPath: string,
   fs?: { writeFileSync: (path: string, data: string) => void },
 ): void {
-  const fsImpl = fs ?? require("node:fs");
+  const fsImpl = fs ?? nodeFs;
   const content = JSON.stringify(report, null, 2) + "\n";
   fsImpl.writeFileSync(outputPath, content);
 }
@@ -177,7 +178,7 @@ export function loadResumeData(
     existsSync: (path: string) => boolean;
   },
 ): { credentials: Record<string, string>; guidance: Record<string, string> } {
-  const fsImpl = fs ?? require("node:fs");
+  const fsImpl = fs ?? nodeFs;
 
   if (!fsImpl.existsSync(envFilePath)) {
     throw new Error(`Environment file not found: ${envFilePath}`);

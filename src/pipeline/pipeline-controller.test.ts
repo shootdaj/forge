@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { runPipeline } from "./pipeline-controller.js";
+import { runPipeline, didMakeProgress } from "./pipeline-controller.js";
 import type { PipelineContext, ServiceDetection } from "./types.js";
 import type { ForgeState } from "../state/schema.js";
 import type { ForgeConfig } from "../config/schema.js";
@@ -1099,5 +1099,213 @@ describe("Pipeline Edge Cases", () => {
     expect(stateHistory).toContain("wave_3");
     expect(stateHistory).toContain("uat");
     expect(stateHistory).toContain("completed");
+  });
+});
+
+// ============================================================================
+// didMakeProgress tests
+// ============================================================================
+
+describe("didMakeProgress", () => {
+  it("returns false with fewer than 3 entries", () => {
+    expect(didMakeProgress([])).toBe(false);
+    expect(didMakeProgress([10])).toBe(false);
+    expect(didMakeProgress([10, 5])).toBe(false);
+  });
+
+  it("returns true when gaps decreased from round 1 to last round", () => {
+    // baseline=32, round1=8, round2=3 → progress (8 > 3)
+    expect(didMakeProgress([32, 8, 3])).toBe(true);
+  });
+
+  it("returns true when gaps decreased overall even if last two rounds same", () => {
+    // baseline=32, round1=8, round2=6, round3=6 → progress (8 > 6)
+    expect(didMakeProgress([32, 8, 6, 6])).toBe(true);
+  });
+
+  it("returns false when gaps stayed the same from round 1", () => {
+    // baseline=5, round1=5, round2=5 → no progress
+    expect(didMakeProgress([5, 5, 5])).toBe(false);
+  });
+
+  it("returns false when gaps increased from round 1", () => {
+    // baseline=10, round1=3, round2=5 → no progress (3 < 5)
+    expect(didMakeProgress([10, 3, 5])).toBe(false);
+  });
+});
+
+// ============================================================================
+// Resume from stage tests
+// ============================================================================
+
+describe("Resume from Stage", () => {
+  it("TestPipeline_ResumeFromWave3_SkipsWave2", async () => {
+    const { ctx, getStepCalls } = createTestPipelineContext({
+      initialState: {
+        status: "wave_3",
+        currentWave: 3,
+      },
+    });
+
+    const result = await runPipeline(ctx);
+
+    // Should complete (compliance passes by default in mock)
+    expect(result.status).toBe("completed");
+
+    // Should NOT have run integration steps (Wave 2)
+    const stepNames = getStepCalls().map((c) => c.name);
+    expect(stepNames).not.toContain("integrate-real-services");
+  });
+
+  it("TestPipeline_ResumeFromUAT_SkipsComplianceAndWave2", async () => {
+    const { ctx, getStepCalls } = createTestPipelineContext({
+      initialState: {
+        status: "uat",
+        currentWave: 3,
+        specCompliance: {
+          totalRequirements: 5,
+          verified: 4,
+          gapHistory: [5, 3, 1],
+          roundsCompleted: 2,
+        },
+        remainingGaps: ["REQ-05"],
+      },
+    });
+
+    const result = await runPipeline(ctx);
+
+    expect(result.status).toBe("completed");
+
+    // Should reconstruct compliance result from state
+    if (result.status === "completed") {
+      expect(result.specCompliance.remainingGaps).toEqual(["REQ-05"]);
+      expect(result.specCompliance.converged).toBe(false);
+    }
+  });
+
+  it("TestPipeline_ResumeFromDeploying_SkipsEverythingBefore", async () => {
+    const { ctx, getStepCalls } = createTestPipelineContext({
+      initialState: {
+        status: "deploying",
+        currentWave: 4,
+      },
+    });
+
+    const result = await runPipeline(ctx);
+
+    expect(result.status).toBe("completed");
+
+    // Should NOT have UAT steps
+    const stepNames = getStepCalls().map((c) => c.name);
+    const hasUatStep = stepNames.some((n) => n.startsWith("uat-"));
+    expect(hasUatStep).toBe(false);
+  });
+
+  it("TestPipeline_FailedState_ShowsResumeHint", async () => {
+    const { ctx } = createTestPipelineContext({
+      initialState: {
+        status: "failed",
+        currentWave: 3,
+      },
+    });
+
+    const result = await runPipeline(ctx);
+
+    expect(result.status).toBe("failed");
+    if (result.status === "failed") {
+      expect(result.reason).toContain("--from");
+    }
+  });
+});
+
+// ============================================================================
+// Non-blocking compliance tests
+// ============================================================================
+
+describe("Non-blocking Compliance", () => {
+  it("TestPipeline_CompliancePartialProgress_ContinuesToUAT", async () => {
+    let verifyRound = 0;
+    const { ctx } = createTestPipelineContext({
+      executeQueryBehavior: async (opts: any) => {
+        const prompt = opts.prompt as string;
+
+        // Batch verification: return decreasing gaps
+        if (prompt.includes("Verify whether each of the following requirements")) {
+          verifyRound++;
+          const verdicts = [
+            { id: "REQ-01", passed: true, gapDescription: "" },
+            { id: "REQ-02", passed: true, gapDescription: "" },
+            { id: "REQ-03", passed: verifyRound > 1, gapDescription: verifyRound > 1 ? "" : "Missing" },
+            { id: "REQ-04", passed: verifyRound > 1, gapDescription: verifyRound > 1 ? "" : "Missing" },
+            // REQ-05 never passes — this is the stubborn gap
+            { id: "REQ-05", passed: false, gapDescription: "Still broken" },
+          ];
+          return {
+            ok: true,
+            result: "```json\n" + JSON.stringify(verdicts) + "\n```",
+            structuredOutput: null,
+            cost: { totalCostUsd: 0.01 },
+            sessionId: "mock",
+          };
+        }
+
+        return {
+          ok: true,
+          result: "done",
+          structuredOutput: null,
+          cost: { totalCostUsd: 0.01 },
+          sessionId: "mock",
+        };
+      },
+    });
+
+    const result = await runPipeline(ctx);
+
+    // Should complete (not stuck) because gaps decreased from 3 to 1
+    expect(result.status).toBe("completed");
+    if (result.status === "completed") {
+      // Should report remaining gaps
+      expect(result.specCompliance.converged).toBe(false);
+      expect(result.specCompliance.remainingGaps.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("TestPipeline_ComplianceNoProgress_ReturnsStuck", async () => {
+    const { ctx } = createTestPipelineContext({
+      executeQueryBehavior: async (opts: any) => {
+        const prompt = opts.prompt as string;
+
+        // All verifications always fail — no progress
+        if (prompt.includes("Verify whether each of the following requirements")) {
+          const verdicts = [
+            { id: "REQ-01", passed: false, gapDescription: "Broken" },
+            { id: "REQ-02", passed: false, gapDescription: "Broken" },
+            { id: "REQ-03", passed: false, gapDescription: "Broken" },
+            { id: "REQ-04", passed: false, gapDescription: "Broken" },
+            { id: "REQ-05", passed: false, gapDescription: "Broken" },
+          ];
+          return {
+            ok: true,
+            result: "```json\n" + JSON.stringify(verdicts) + "\n```",
+            structuredOutput: null,
+            cost: { totalCostUsd: 0.01 },
+            sessionId: "mock",
+          };
+        }
+
+        return {
+          ok: true,
+          result: "done",
+          structuredOutput: null,
+          cost: { totalCostUsd: 0.01 },
+          sessionId: "mock",
+        };
+      },
+    });
+
+    const result = await runPipeline(ctx);
+
+    // Should be stuck — gaps never decreased (5 every round)
+    expect(result.status).toBe("stuck");
   });
 });

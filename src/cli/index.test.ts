@@ -221,7 +221,7 @@ describe("createCli", () => {
     expect(commandMap.get("run")).toBe("Execute full wave model autonomously");
     expect(commandMap.get("phase")).toBe("Run a single phase");
     expect(commandMap.get("status")).toBe("Display project status");
-    expect(commandMap.get("resume")).toBe("Continue from checkpoint");
+    expect(commandMap.get("resume")).toBe("Continue from checkpoint or specific stage");
   });
 
   it("forge init creates state file", async () => {
@@ -346,7 +346,7 @@ describe("createCli", () => {
 
     expect(exitSpy).toHaveBeenCalledWith(1);
     const output = consoleErrorSpy.mock.calls.map((c) => c[0]).join("\n");
-    expect(output).toContain("--env <file> is required");
+    expect(output).toContain("--env <file> or --from <stage> is required");
   });
 
   it("forge resume with --env loads resume data and runs pipeline", async () => {

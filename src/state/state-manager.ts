@@ -126,6 +126,12 @@ export function createInitialState(
       workflowsPassed: 0,
       workflowsFailed: 0,
     },
+    deployment: {
+      status: "not_started",
+      url: "",
+      target: "",
+      attempts: 0,
+    },
     totalBudgetUsed: 0,
   };
 }

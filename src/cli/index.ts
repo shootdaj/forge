@@ -26,6 +26,7 @@ import { createDocPages } from "../docs/index.js";
 import type { PipelineContext, PipelineResult } from "../pipeline/types.js";
 import type { PhaseRunnerContext, PhaseResult } from "../phase-runner/types.js";
 import type { ForgeConfig } from "../config/schema.js";
+import type { ForgeState } from "../state/schema.js";
 import type { StepRunnerContext } from "../step-runner/types.js";
 import type { GatherResult } from "../requirements/types.js";
 
@@ -74,9 +75,16 @@ function handlePipelineResult(result: PipelineResult): number {
         `Waves: ${result.wavesCompleted} | Phases: ${result.phasesCompleted.join(", ")}`,
       );
       console.log(`Total cost: $${result.totalCostUsd.toFixed(2)}`);
-      console.log(
-        `Spec compliance: ${result.specCompliance.remainingGaps.length === 0 ? "All requirements verified" : `${result.specCompliance.remainingGaps.length} gaps remaining`}`,
-      );
+      if (result.specCompliance.remainingGaps.length > 0) {
+        console.warn(
+          `Warning: ${result.specCompliance.remainingGaps.length} spec compliance gaps remain: ${result.specCompliance.remainingGaps.join(", ")}`,
+        );
+      } else {
+        console.log("Spec compliance: All requirements verified");
+      }
+      if (result.deploymentUrl) {
+        console.log(`Deployed: ${result.deploymentUrl}`);
+      }
       return 0;
 
     case "checkpoint":
@@ -109,6 +117,10 @@ function handlePipelineResult(result: PipelineResult): number {
       console.error("Pipeline stuck (non-converging).");
       console.error(`Wave: ${result.wave} | Reason: ${result.reason}`);
       console.error(`Gap history: ${result.gapHistory.join(" -> ")}`);
+      console.error("");
+      console.error("To retry from a specific stage, use:");
+      console.error("  $ forge resume --from wave_3");
+      console.error("  $ forge resume --from uat");
       return 1;
   }
 }
@@ -397,13 +409,20 @@ ${reqContent}`,
   // -------------------------------------------------------------------
   program
     .command("resume")
-    .description("Continue from checkpoint")
+    .description("Continue from checkpoint or specific stage")
     .option("--env <file>", "Path to .env file with credentials")
     .option("--guidance <file>", "Path to guidance markdown file")
-    .action(async (opts: { env?: string; guidance?: string }) => {
+    .option("--from <stage>", "Resume from a specific stage (wave_2, wave_3, uat, deploying)")
+    .action(async (opts: { env?: string; guidance?: string; from?: string }) => {
       try {
-        if (!opts.env) {
-          console.error("Error: --env <file> is required for resume.");
+        const validStages = ["wave_2", "wave_3", "uat", "deploying"];
+        if (opts.from && !validStages.includes(opts.from)) {
+          console.error(`Error: --from must be one of: ${validStages.join(", ")}`);
+          process.exit(1);
+        }
+
+        if (!opts.env && !opts.from) {
+          console.error("Error: --env <file> or --from <stage> is required for resume.");
           process.exit(1);
         }
 
@@ -411,18 +430,26 @@ ${reqContent}`,
         const stateManager = new StateManager(process.cwd());
         const costController = new CostController();
 
-        // Load resume data (credentials + guidance)
-        const resumeData = loadResumeData(opts.env, opts.guidance);
+        // Load resume data (credentials + guidance) if env provided
+        if (opts.env) {
+          const resumeData = loadResumeData(opts.env, opts.guidance);
+          await stateManager.update((current) => ({
+            ...current,
+            credentials: { ...current.credentials, ...resumeData.credentials },
+            humanGuidance: {
+              ...current.humanGuidance,
+              ...resumeData.guidance,
+            },
+          }));
+        }
 
-        // Update state with credentials and guidance
-        await stateManager.update((current) => ({
-          ...current,
-          credentials: { ...current.credentials, ...resumeData.credentials },
-          humanGuidance: {
-            ...current.humanGuidance,
-            ...resumeData.guidance,
-          },
-        }));
+        // Override state status if --from is specified
+        if (opts.from) {
+          await stateManager.update((current) => ({
+            ...current,
+            status: opts.from as ForgeState["status"],
+          }));
+        }
 
         const ctx = buildPipelineContext(config, stateManager, costController);
         const result = await runPipeline(ctx);
