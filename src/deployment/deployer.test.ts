@@ -10,8 +10,11 @@ import {
   isWebApp,
   extractDeployedUrl,
   extractDeployFailure,
+  extractSmokeTestResult,
   runDeployment,
 } from "./deployer.js";
+import { buildSmokeTestPrompt, buildDeployPrompt } from "./prompts.js";
+import { buildContextPrompt, getPlatformConstraints } from "../phase-runner/prompts.js";
 import type { DeploymentContext } from "./types.js";
 
 describe("isWebApp", () => {
@@ -251,5 +254,143 @@ describe("runDeployment", () => {
     expect(extractDeployedUrl("DEPLOYED_URL: https://my-app.vercel.app")).toBe(
       "https://my-app.vercel.app",
     );
+  });
+});
+
+describe("extractSmokeTestResult", () => {
+  it("extracts passing result", () => {
+    const output = 'SMOKE_TEST_RESULT: {"passed": true, "tests": [{"name": "landing page", "passed": true}]}';
+    const result = extractSmokeTestResult(output);
+    expect(result).toEqual({
+      passed: true,
+      tests: [{ name: "landing page", passed: true }],
+    });
+  });
+
+  it("extracts failing result with errors", () => {
+    const output = 'SMOKE_TEST_RESULT: {"passed": false, "tests": [{"name": "login", "passed": false, "error": "Returns 500"}]}';
+    const result = extractSmokeTestResult(output);
+    expect(result?.passed).toBe(false);
+    expect(result?.tests[0].error).toBe("Returns 500");
+  });
+
+  it("returns null when no result found", () => {
+    expect(extractSmokeTestResult("No smoke test output")).toBeNull();
+  });
+
+  it("returns null for invalid JSON", () => {
+    expect(extractSmokeTestResult("SMOKE_TEST_RESULT: {not json}")).toBeNull();
+  });
+
+  it("returns null for JSON missing required fields", () => {
+    expect(extractSmokeTestResult('SMOKE_TEST_RESULT: {"foo": "bar"}')).toBeNull();
+  });
+});
+
+describe("getPlatformConstraints", () => {
+  it("warns about SQLite on Vercel", () => {
+    const constraints = getPlatformConstraints("vercel");
+    expect(constraints).toContain("No SQLite");
+    expect(constraints).toContain("read-only filesystem");
+    expect(constraints).toContain("ephemeral");
+  });
+
+  it("warns about SQLite on Netlify", () => {
+    const constraints = getPlatformConstraints("netlify");
+    expect(constraints).toContain("No SQLite");
+  });
+
+  it("allows SQLite on Railway", () => {
+    const constraints = getPlatformConstraints("railway");
+    expect(constraints).toContain("SQLite and file-based storage are OK");
+  });
+
+  it("mentions persistent volumes for Fly", () => {
+    const constraints = getPlatformConstraints("fly");
+    expect(constraints).toContain("persistent volume");
+  });
+
+  it("provides generic advice for unknown targets", () => {
+    const constraints = getPlatformConstraints("custom");
+    expect(constraints).toContain("compatible with the target platform");
+  });
+});
+
+describe("buildContextPrompt with deployment target", () => {
+  it("includes deployment constraints when target is provided", () => {
+    const prompt = buildContextPrompt(1, "Build scaffolding", "# Roadmap", undefined, "vercel");
+    expect(prompt).toContain("Deployment Target");
+    expect(prompt).toContain("vercel");
+    expect(prompt).toContain("No SQLite");
+  });
+
+  it("omits deployment section when no target", () => {
+    const prompt = buildContextPrompt(1, "Build scaffolding", "# Roadmap");
+    expect(prompt).not.toContain("Deployment Target");
+    expect(prompt).not.toContain("No SQLite");
+  });
+});
+
+describe("buildSmokeTestPrompt", () => {
+  it("includes the deployed URL", () => {
+    const prompt = buildSmokeTestPrompt({ url: "https://app.vercel.app", target: "vercel" });
+    expect(prompt).toContain("https://app.vercel.app");
+  });
+
+  it("instructs to test authentication flow", () => {
+    const prompt = buildSmokeTestPrompt({ url: "https://app.vercel.app", target: "vercel" });
+    expect(prompt).toContain("sign up");
+    expect(prompt).toContain("log in");
+  });
+
+  it("instructs to check data persistence", () => {
+    const prompt = buildSmokeTestPrompt({ url: "https://app.vercel.app", target: "vercel" });
+    expect(prompt).toContain("data persistence");
+    expect(prompt).toContain("SQLite-on-serverless");
+  });
+
+  it("expects structured SMOKE_TEST_RESULT output", () => {
+    const prompt = buildSmokeTestPrompt({ url: "https://app.vercel.app", target: "vercel" });
+    expect(prompt).toContain("SMOKE_TEST_RESULT:");
+  });
+});
+
+describe("buildDeployPrompt platform warnings", () => {
+  it("warns about SQLite on Vercel", () => {
+    const prompt = buildDeployPrompt({
+      target: "vercel",
+      environments: ["production"],
+      projectDir: "/project",
+    });
+    expect(prompt).toContain("SQLite");
+    expect(prompt).toContain("serverless");
+    expect(prompt).toContain("CRITICAL");
+  });
+
+  it("warns about SQLite on Netlify", () => {
+    const prompt = buildDeployPrompt({
+      target: "netlify",
+      environments: ["production"],
+      projectDir: "/project",
+    });
+    expect(prompt).toContain("SQLite");
+  });
+
+  it("warns about volumes on Fly", () => {
+    const prompt = buildDeployPrompt({
+      target: "fly",
+      environments: ["production"],
+      projectDir: "/project",
+    });
+    expect(prompt).toContain("persistent volume");
+  });
+
+  it("does not warn for Railway (persistent filesystem)", () => {
+    const prompt = buildDeployPrompt({
+      target: "railway",
+      environments: ["production"],
+      projectDir: "/project",
+    });
+    expect(prompt).not.toContain("SQLite");
   });
 });

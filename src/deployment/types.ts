@@ -66,6 +66,23 @@ export interface DeployAttempt {
 }
 
 /**
+ * Result of a single smoke test check.
+ */
+export interface SmokeTestCheck {
+  name: string;
+  passed: boolean;
+  error?: string;
+}
+
+/**
+ * Result of post-deployment smoke testing.
+ */
+export interface SmokeTestResult {
+  passed: boolean;
+  tests: SmokeTestCheck[];
+}
+
+/**
  * Final deployment result.
  */
 export type DeploymentResult =
@@ -74,6 +91,7 @@ export type DeploymentResult =
       url: string;
       attempts: DeployAttempt[];
       totalCostUsd: number;
+      smokeTest?: SmokeTestResult;
     }
   | {
       status: "skipped";

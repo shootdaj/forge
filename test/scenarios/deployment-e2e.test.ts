@@ -247,15 +247,18 @@ describe("TestDeployE2E_ExpressApiApp", () => {
   });
 
   it("deploys to Railway on first attempt with cold start recovery", async () => {
-    const mockRunStep = vi.fn(async () =>
-      verifiedStep([
+    const mockRunStep = vi.fn(async (name: string) => {
+      if (name === "post-deploy-smoke-test") {
+        return verifiedStep('SMOKE_TEST_RESULT: {"passed": true, "tests": [{"name": "general", "passed": true}]}', 0.5);
+      }
+      return verifiedStep([
         "Building TypeScript project...",
         "Setting up Railway deployment...",
         "Pushing to Railway...",
         "DEPLOYED_URL: https://api-production-abc123.up.railway.app",
         "Deployment live!",
-      ].join("\n"), 2.1),
-    );
+      ].join("\n"), 2.1);
+    });
 
     let fetchCallCount = 0;
     const mockFetch = vi.fn(async () => {
@@ -284,8 +287,8 @@ describe("TestDeployE2E_ExpressApiApp", () => {
     expect(result.attempts[0].success).toBe(true);
     expect(result.attempts[0].healthCheck?.healthy).toBe(true);
 
-    // Only 1 step call — deployed on first attempt
-    expect(mockRunStep).toHaveBeenCalledOnce();
+    // 2 step calls: deploy + smoke test
+    expect(mockRunStep).toHaveBeenCalledTimes(2);
 
     // Health check retried (ECONNREFUSED → ECONNREFUSED → 200)
     expect(mockFetch).toHaveBeenCalledTimes(3);
@@ -320,11 +323,16 @@ describe("TestDeployE2E_RemixFullStackApp", () => {
   });
 
   it("retries 3 times before succeeding on third attempt", async () => {
-    let stepCallCount = 0;
+    let deployStepCount = 0;
 
-    const mockRunStep = vi.fn(async () => {
-      stepCallCount++;
-      switch (stepCallCount) {
+    const mockRunStep = vi.fn(async (name: string) => {
+      // Smoke test step — return passing result
+      if (name === "post-deploy-smoke-test") {
+        return verifiedStep('SMOKE_TEST_RESULT: {"passed": true, "tests": [{"name": "general", "passed": true}]}', 0.4);
+      }
+
+      deployStepCount++;
+      switch (deployStepCount) {
         case 1:
           // Attempt 1: Fly CLI not found
           return verifiedStep(
@@ -394,8 +402,8 @@ describe("TestDeployE2E_RemixFullStackApp", () => {
     expect(result.attempts[2].url).toBe("https://remix-app.fly.dev");
     expect(result.attempts[2].healthCheck?.healthy).toBe(true);
 
-    // Cost accumulated across all attempts
-    expect(result.totalCostUsd).toBeCloseTo(0.3 + 1.8 + 1.2, 1);
+    // Cost accumulated across all attempts + smoke test
+    expect(result.totalCostUsd).toBeCloseTo(0.3 + 1.8 + 1.2 + 0.4, 1);
 
     // State reflects success
     const state = ctx.stateManager.load();

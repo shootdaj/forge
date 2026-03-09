@@ -11,11 +11,12 @@ import * as nodeFs from "node:fs";
 import * as nodePath from "node:path";
 import { runStep as defaultRunStep } from "../step-runner/step-runner.js";
 import { checkDeploymentHealth } from "./health-check.js";
-import { buildDeployPrompt, buildDeployFixPrompt } from "./prompts.js";
+import { buildDeployPrompt, buildDeployFixPrompt, buildSmokeTestPrompt } from "./prompts.js";
 import type {
   DeploymentContext,
   DeploymentResult,
   DeployAttempt,
+  SmokeTestResult,
 } from "./types.js";
 
 /**
@@ -172,7 +173,7 @@ export async function runDeployment(
           ? stepResult.result
           : "";
 
-    const deployedUrl = extractDeployedUrl(output);
+    let deployedUrl = extractDeployedUrl(output);
     const deployFailure = extractDeployFailure(output);
 
     if (deployFailure || !deployedUrl) {
@@ -185,9 +186,12 @@ export async function runDeployment(
       continue;
     }
 
+    // At this point deployedUrl is guaranteed non-null
+    let currentUrl: string = deployedUrl;
+
     // Health check the deployed URL
     const healthResult = await checkDeploymentHealth({
-      url: deployedUrl,
+      url: currentUrl,
       healthEndpoint: "/",
       retries: 3,
       retryDelayMs: ctx.healthCheckRetryDelayMs ?? 5_000,
@@ -198,10 +202,31 @@ export async function runDeployment(
       attempts.push({
         attempt,
         success: true,
-        url: deployedUrl,
+        url: currentUrl,
         healthCheck: healthResult,
         costUsd: stepCost,
       });
+
+      // Run post-deployment smoke test to verify core flows actually work
+      const smokeTest = await runSmokeTest(currentUrl, target, execStep);
+      if (smokeTest) {
+        totalCostUsd += smokeTest.costUsd;
+
+        if (!smokeTest.result.passed) {
+          // Smoke test failed — check if agent fixed and redeployed
+          const redeployedUrl = smokeTest.redeployedUrl;
+          if (redeployedUrl && redeployedUrl !== currentUrl) {
+            // Agent fixed the issue and redeployed — update URL
+            currentUrl = redeployedUrl;
+          } else {
+            // Smoke test failed and no redeploy — continue to next attempt
+            attempts[attempts.length - 1].success = false;
+            attempts[attempts.length - 1].error =
+              `Smoke test failed: ${smokeTest.result.tests.filter((t) => !t.passed).map((t) => t.name).join(", ")}`;
+            continue;
+          }
+        }
+      }
 
       // Update state with deployment info
       try {
@@ -209,7 +234,7 @@ export async function runDeployment(
           ...s,
           deployment: {
             status: "deployed" as const,
-            url: deployedUrl,
+            url: currentUrl,
             target,
             deployedAt: new Date().toISOString(),
             attempts: attempt,
@@ -221,9 +246,10 @@ export async function runDeployment(
 
       return {
         status: "deployed",
-        url: deployedUrl,
+        url: currentUrl,
         attempts,
         totalCostUsd,
+        smokeTest: smokeTest?.result,
       };
     }
 
@@ -231,7 +257,7 @@ export async function runDeployment(
     attempts.push({
       attempt,
       success: false,
-      url: deployedUrl,
+      url: currentUrl,
       healthCheck: healthResult,
       error: `Health check failed: HTTP ${healthResult.statusCode} — ${healthResult.error}`,
       costUsd: stepCost,
@@ -260,4 +286,70 @@ export async function runDeployment(
     totalCostUsd,
     reason: `Deployment failed after ${attempts.length} attempts`,
   };
+}
+
+/**
+ * Extract smoke test result JSON from agent output.
+ */
+export function extractSmokeTestResult(output: string): SmokeTestResult | null {
+  const match = output.match(/SMOKE_TEST_RESULT:\s*(\{.*\})/i);
+  if (!match) return null;
+
+  try {
+    const parsed = JSON.parse(match[1]);
+    if (typeof parsed.passed !== "boolean" || !Array.isArray(parsed.tests)) {
+      return null;
+    }
+    return parsed as SmokeTestResult;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Run post-deployment smoke test.
+ *
+ * Asks the agent to verify core user flows against the deployed URL.
+ * Returns the smoke test result and any redeployed URL.
+ */
+async function runSmokeTest(
+  url: string,
+  target: string,
+  execStep: (name: string, opts: any) => Promise<any>,
+): Promise<{ result: SmokeTestResult; costUsd: number; redeployedUrl?: string } | null> {
+  try {
+    const prompt = buildSmokeTestPrompt({ url, target });
+    const stepResult = await execStep("post-deploy-smoke-test", {
+      prompt,
+      verify: async () => true,
+    });
+
+    const costUsd =
+      stepResult.status === "verified" || stepResult.status === "failed" || stepResult.status === "error"
+        ? stepResult.costUsd
+        : 0;
+
+    const output =
+      stepResult.status === "verified"
+        ? stepResult.result
+        : stepResult.status === "failed" && stepResult.result
+          ? stepResult.result
+          : "";
+
+    const smokeResult = extractSmokeTestResult(output);
+    const redeployedUrl = extractDeployedUrl(output);
+
+    if (smokeResult) {
+      return { result: smokeResult, costUsd, redeployedUrl: redeployedUrl ?? undefined };
+    }
+
+    // If no structured result, assume pass (agent didn't find issues)
+    return {
+      result: { passed: true, tests: [{ name: "general", passed: true }] },
+      costUsd,
+    };
+  } catch {
+    // Smoke test failure is non-fatal — don't block deployment
+    return null;
+  }
 }

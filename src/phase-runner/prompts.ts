@@ -29,7 +29,22 @@ export function buildContextPrompt(
   phaseGoal: string,
   roadmapContent: string,
   phaseDir?: string,
+  deploymentTarget?: string,
 ): string {
+  const deploymentSection = deploymentTarget
+    ? `\n## Deployment Target
+This project will be deployed to **${deploymentTarget}**.
+
+**CRITICAL: All technology choices MUST be compatible with the deployment target.**
+
+Platform constraints you MUST follow:
+${getPlatformConstraints(deploymentTarget)}
+
+When making implementation decisions (especially database, file storage, caching),
+verify they work on the target platform. If the requirements suggest an incompatible
+technology, choose a compatible alternative and document the decision.\n`
+    : "";
+
   return `You are gathering context for Phase ${phaseNumber} of a software project.
 
 ## Phase Goal
@@ -37,7 +52,7 @@ ${phaseGoal}
 
 ## Project Roadmap
 ${roadmapContent}
-
+${deploymentSection}
 ## Your Task
 
 Analyze the phase goal and identify:
@@ -393,4 +408,45 @@ Create a PHASE_REPORT.md file summarizing this phase's execution:
 8. **Next Steps** -- what the next phase needs to know
 
 Write PHASE_REPORT.md to the EXACT path: \`${phaseDir ?? `.planning/phases/${String(phaseNumber).padStart(2, "0")}-phase-${phaseNumber}`}/PHASE_REPORT.md\``;
+}
+
+/**
+ * Get platform-specific constraints for a deployment target.
+ *
+ * Used by buildContextPrompt to warn the agent about incompatible
+ * technology choices before any code is written.
+ */
+export function getPlatformConstraints(target: string): string {
+  switch (target) {
+    case "vercel":
+      return `- **Serverless (read-only filesystem)**: No SQLite, no file-based databases, no writing to disk at runtime
+- **No persistent local storage**: Data written to /tmp is ephemeral and lost between invocations
+- **Use cloud databases**: PostgreSQL (Neon, Supabase), MySQL (PlanetScale), or serverless KV (Vercel KV, Upstash)
+- **No long-running processes**: Functions timeout after 10-60s (depending on plan)
+- **No WebSocket servers**: Use Vercel's serverless functions or edge functions instead
+- **Environment variables**: Must be set in Vercel dashboard or via CLI, not in .env files`;
+
+    case "netlify":
+      return `- **Serverless (read-only filesystem)**: No SQLite, no file-based databases
+- **No persistent local storage**: Ephemeral function execution
+- **Use cloud databases**: PostgreSQL, MySQL, or serverless KV
+- **Functions timeout**: 10-26s depending on plan`;
+
+    case "railway":
+      return `- **Persistent filesystem**: SQLite and file-based storage are OK
+- **Container-based**: Runs as a Docker container or Nixpacks build
+- **Persistent volumes**: Available for database files
+- **WebSockets supported**: Long-running connections work`;
+
+    case "fly":
+      return `- **Container-based with volumes**: SQLite works if mounted on a persistent volume
+- **Multi-region**: Consider database placement for latency
+- **Persistent volumes**: Must be explicitly configured for data persistence
+- **WebSockets supported**: Long-running connections work`;
+
+    default:
+      return `- Verify your database and storage choices are compatible with the target platform
+- Check if the platform has a persistent filesystem or is serverless
+- Serverless platforms (Lambda, Cloud Functions) cannot use SQLite or file-based storage`;
+  }
 }

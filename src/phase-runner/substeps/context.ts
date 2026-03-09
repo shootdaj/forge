@@ -53,7 +53,8 @@ export async function gatherContext(
   // Extract phase goal from roadmap
   const phaseGoal = extractPhaseGoal(roadmapContent, phaseNumber);
 
-  const prompt = buildContextPrompt(phaseNumber, phaseGoal, roadmapContent, phaseDir);
+  const deploymentTarget = ctx.config.deployment?.target;
+  const prompt = buildContextPrompt(phaseNumber, phaseGoal, roadmapContent, phaseDir, deploymentTarget);
 
   const result = await runStep(
     `phase-${phaseNumber}-context`,

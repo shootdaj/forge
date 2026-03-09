@@ -4,7 +4,7 @@
  * Pure functions that build prompts for deployment-related agent steps.
  */
 
-import type { DeployAttempt } from "./types.js";
+import type { DeployAttempt, SmokeTestResult } from "./types.js";
 
 /**
  * Build prompt for deploying a web app.
@@ -89,6 +89,32 @@ export function buildDeployPrompt(opts: {
       );
   }
 
+  // Platform-specific warnings about common incompatibilities
+  parts.push(
+    "",
+    "## Pre-deployment checks:",
+    "Before deploying, verify the project does NOT use incompatible technologies:",
+  );
+
+  switch (opts.target) {
+    case "vercel":
+    case "netlify":
+      parts.push(
+        "- **CRITICAL**: Check for SQLite or file-based databases (better-sqlite3, sql.js, lowdb).",
+        "  These WILL NOT WORK on serverless platforms — the filesystem is read-only and ephemeral.",
+        "  If found, migrate to a cloud database (PostgreSQL via Neon/Supabase, or Vercel KV) BEFORE deploying.",
+        "- Check for any code that writes to the local filesystem at runtime (uploads, logs, cache files).",
+        "- Check for long-running processes or WebSocket servers that exceed function timeouts.",
+      );
+      break;
+    case "fly":
+      parts.push(
+        "- If using SQLite, ensure a persistent volume is configured in fly.toml.",
+        "- Verify DATABASE_URL points to the volume-mounted path.",
+      );
+      break;
+  }
+
   parts.push(
     "",
     "4. Print the deployed URL on its own line prefixed with DEPLOYED_URL:",
@@ -133,5 +159,50 @@ export function buildDeployFixPrompt(opts: {
     "4. Redeploy using the same method as before",
     "5. Print the new URL: DEPLOYED_URL: <url>",
     "   Or if still failing: DEPLOY_FAILED: <reason>",
+  ].join("\n");
+}
+
+/**
+ * Build prompt for post-deployment smoke testing.
+ *
+ * After health check passes, runs core user flows against the deployed URL
+ * to verify the app actually works — not just that it returns HTTP 200.
+ */
+export function buildSmokeTestPrompt(opts: {
+  url: string;
+  target: string;
+}): string {
+  return [
+    `The app has been deployed to ${opts.url} and the health check passed (HTTP 200).`,
+    "",
+    "Now verify the app ACTUALLY WORKS by testing core user flows against the live URL.",
+    "",
+    "## Smoke Test Instructions:",
+    "",
+    "1. **Visit the landing page** — verify it loads, check all navigation links return 200 (not 404)",
+    "2. **Test authentication flow** (if the app has auth):",
+    "   - Try to sign up with a test account",
+    "   - Try to log in with the account you just created",
+    "   - Verify you reach the authenticated area (dashboard, home, etc.)",
+    "   - If signup or login fails, this is a CRITICAL issue",
+    "3. **Test one core workflow** — the primary action the app exists for:",
+    "   - Submit a form, create a record, make an API call, etc.",
+    "   - Verify the result persists (reload the page and check it's still there)",
+    "4. **Check for data persistence issues**:",
+    "   - If the app uses a database, verify writes persist across page reloads",
+    "   - On serverless platforms: verify data persists across different requests",
+    "     (this catches SQLite-on-serverless bugs where /tmp is ephemeral)",
+    "",
+    "## Output:",
+    "Report results as JSON on a single line prefixed with SMOKE_TEST_RESULT:",
+    "",
+    'SMOKE_TEST_RESULT: {"passed": true, "tests": [{"name": "landing page", "passed": true}, ...]}',
+    "",
+    "Or if failures found:",
+    "",
+    'SMOKE_TEST_RESULT: {"passed": false, "tests": [{"name": "login", "passed": false, "error": "Returns 500 on POST /api/auth/signin"}]}',
+    "",
+    "If you find critical issues (auth broken, data not persisting), also fix them in the code,",
+    "redeploy, and re-test. Print DEPLOYED_URL: <url> with the new URL after redeployment.",
   ].join("\n");
 }
