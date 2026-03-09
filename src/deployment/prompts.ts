@@ -61,6 +61,11 @@ export function buildDeployPrompt(opts: {
         "   - Run `npx vercel --prod --yes` to deploy",
         "   - If not linked, run `npx vercel link` first",
         "   - Capture the deployment URL from the output",
+        "   - **IMPORTANT**: Disable Vercel Deployment Protection so the health check can reach the app:",
+        "     Run `npx vercel protection disable --scope production --yes` after deploying.",
+        "     If that command is unavailable, set `VERCEL_AUTOMATION_BYPASS_SECRET` as an env var",
+        "     via `npx vercel env add VERCEL_AUTOMATION_BYPASS_SECRET production` with a random token,",
+        "     then print: PROTECTION_BYPASS: <the-token-you-set>",
       );
       break;
     case "railway":

@@ -175,6 +175,7 @@ export async function runDeployment(
 
     let deployedUrl = extractDeployedUrl(output);
     const deployFailure = extractDeployFailure(output);
+    const protectionBypass = extractProtectionBypass(output);
 
     if (deployFailure || !deployedUrl) {
       attempts.push({
@@ -189,13 +190,16 @@ export async function runDeployment(
     // At this point deployedUrl is guaranteed non-null
     let currentUrl: string = deployedUrl;
 
-    // Health check the deployed URL
+    // Health check the deployed URL (with bypass header if deployment protection is active)
     const healthResult = await checkDeploymentHealth({
       url: currentUrl,
       healthEndpoint: "/",
       retries: 3,
       retryDelayMs: ctx.healthCheckRetryDelayMs ?? 5_000,
       fetchFn: ctx.fetchFn,
+      headers: protectionBypass
+        ? { "x-vercel-protection-bypass": protectionBypass }
+        : undefined,
     });
 
     if (healthResult.healthy) {
@@ -286,6 +290,16 @@ export async function runDeployment(
     totalCostUsd,
     reason: `Deployment failed after ${attempts.length} attempts`,
   };
+}
+
+/**
+ * Extract Vercel deployment protection bypass token from agent output.
+ *
+ * Looks for "PROTECTION_BYPASS: <token>" pattern in the step result.
+ */
+export function extractProtectionBypass(output: string): string | null {
+  const match = output.match(/PROTECTION_BYPASS:\s*(\S+)/i);
+  return match ? match[1].replace(/[.,;)}\]]+$/, "") : null;
 }
 
 /**

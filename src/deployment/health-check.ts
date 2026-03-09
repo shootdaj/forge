@@ -20,6 +20,8 @@ export interface HealthCheckOptions {
   retryDelayMs?: number;
   /** Injectable fetch function */
   fetchFn?: (url: string, init?: RequestInit) => Promise<Response>;
+  /** Extra headers (e.g., Vercel deployment protection bypass) */
+  headers?: Record<string, string>;
 }
 
 /**
@@ -56,6 +58,7 @@ export async function checkDeploymentHealth(
       const response = await fetchFn(fullUrl, {
         signal: controller.signal,
         redirect: "follow",
+        headers: opts.headers,
       });
 
       clearTimeout(timer);
