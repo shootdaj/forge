@@ -353,6 +353,15 @@ describe("buildSmokeTestPrompt", () => {
     const prompt = buildSmokeTestPrompt({ url: "https://app.vercel.app", target: "vercel" });
     expect(prompt).toContain("SMOKE_TEST_RESULT:");
   });
+
+  it("instructs visual verification with agent-browser", () => {
+    const prompt = buildSmokeTestPrompt({ url: "https://app.vercel.app", target: "vercel" });
+    expect(prompt).toContain("agent-browser");
+    expect(prompt).toContain("screenshot");
+    expect(prompt).toContain("chart");
+    expect(prompt).toContain("legend");
+    expect(prompt).toContain("overlapping");
+  });
 });
 
 describe("buildDeployPrompt platform warnings", () => {
