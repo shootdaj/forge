@@ -61,11 +61,14 @@ export function buildDeployPrompt(opts: {
         "   - Run `npx vercel --prod --yes` to deploy",
         "   - If not linked, run `npx vercel link` first",
         "   - Capture the deployment URL from the output",
-        "   - **IMPORTANT**: Disable Vercel Deployment Protection so the health check can reach the app:",
-        "     Run `npx vercel protection disable --scope production --yes` after deploying.",
-        "     If that command is unavailable, set `VERCEL_AUTOMATION_BYPASS_SECRET` as an env var",
-        "     via `npx vercel env add VERCEL_AUTOMATION_BYPASS_SECRET production` with a random token,",
-        "     then print: PROTECTION_BYPASS: <the-token-you-set>",
+        "   - **IMPORTANT**: After deploying, verify the URL is publicly accessible (curl it).",
+        "     If you get HTTP 401/403 (Vercel Deployment Protection), generate a bypass secret:",
+        "     1. Read project ID from `.vercel/project.json` (`orgId` and `projectId` fields)",
+        "     2. Get your Vercel token: read the `token` field from `~/.config/vercel/auth.json` or `~/.local/share/com.vercel.cli/auth.json`",
+        "     3. Generate bypass: `curl -s -X PATCH 'https://api.vercel.com/v1/projects/<projectId>/protection-bypass' -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' -d '{\"generate\":{\"note\":\"forge-health-check\"}}'`",
+        "     4. Extract the secret key from the JSON response (the key of the protectionBypass object, a 32-char alphanumeric string)",
+        "     5. Print: PROTECTION_BYPASS: <the-32-char-secret>",
+        "     This lets our automated health check bypass deployment protection.",
       );
       break;
     case "railway":
