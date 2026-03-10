@@ -10,7 +10,7 @@
 
 import { Command } from "commander";
 import * as fs from "node:fs";
-import { loadConfig, loadConfigOrDefaults } from "../config/index.js";
+import { loadConfig, loadConfigOrDefaults, loadGlobalConfig, updateGlobalConfig } from "../config/index.js";
 import {
   StateManager,
   createInitialState,
@@ -163,6 +163,46 @@ export function createCli(): Command {
     .name("forge")
     .description("Autonomous software development orchestrator")
     .version("0.1.0");
+
+  // -------------------------------------------------------------------
+  // forge setup
+  // -------------------------------------------------------------------
+  program
+    .command("setup")
+    .description("One-time global Forge setup (Notion parent page, default model)")
+    .option("--notion-page <id>", "Notion parent page ID for all Forge projects")
+    .option("--model <model>", "Default model for new projects")
+    .action(async (opts: { notionPage?: string; model?: string }) => {
+      try {
+        const updates: Record<string, unknown> = {};
+
+        if (opts.notionPage) {
+          updates.notion = { parent_page_id: opts.notionPage };
+        }
+        if (opts.model) {
+          updates.model = opts.model;
+        }
+
+        if (Object.keys(updates).length === 0) {
+          // Show current config
+          const current = loadGlobalConfig();
+          console.log("Global Forge config (~/.forge/config.json):");
+          console.log(JSON.stringify(current, null, 2));
+          console.log("");
+          console.log("Usage:");
+          console.log("  forge setup --notion-page <page-id>  Set Notion parent page");
+          console.log("  forge setup --model <model>          Set default model");
+          return;
+        }
+
+        const result = updateGlobalConfig(updates as any);
+        console.log("Global config updated:");
+        console.log(JSON.stringify(result, null, 2));
+      } catch (err) {
+        console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+        process.exit(1);
+      }
+    });
 
   // -------------------------------------------------------------------
   // forge init
