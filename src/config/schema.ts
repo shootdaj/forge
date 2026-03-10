@@ -68,6 +68,16 @@ const ParallelismConfigSchema = z.object({
 });
 
 /**
+ * Frontend design configuration schema.
+ * Controls whether Forge pauses to let the user choose a design direction.
+ */
+const FrontendConfigSchema = z.object({
+  has_gui: z.boolean().default(false),
+  design_interactive: z.boolean().default(true),
+  design_options_count: z.number().int().min(2).max(6).default(3),
+});
+
+/**
  * Deployment configuration schema.
  */
 const DeploymentConfigSchema = z.object({
@@ -106,6 +116,7 @@ export const ForgeConfigSchema = z.object({
   verification: z.any().default({}).pipe(VerificationConfigSchema),
   notion: z.any().default({}).pipe(NotionConfigSchema),
   parallelism: z.any().default({}).pipe(ParallelismConfigSchema),
+  frontend: z.any().default({}).pipe(FrontendConfigSchema),
   deployment: z.any().default({}).pipe(DeploymentConfigSchema),
   notifications: z.any().default({}).pipe(NotificationsConfigSchema),
 });
@@ -160,6 +171,11 @@ export interface ForgeConfig {
     maxConcurrentPhases: number;
     enableSubagents: boolean;
     backgroundDocs: boolean;
+  };
+  frontend: {
+    hasGui: boolean;
+    designInteractive: boolean;
+    designOptionsCount: number;
   };
   deployment: {
     target: string;

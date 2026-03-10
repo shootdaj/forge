@@ -15,7 +15,7 @@ import { runStepWithCascade } from "../../step-runner/index.js";
 import type { PhaseRunnerContext } from "../types.js";
 import { CONTEXT_FILE, PLAN_FILE, EXECUTION_MARKER } from "../types.js";
 import { writeCheckpoint } from "../checkpoint.js";
-import { buildExecutePrompt } from "../prompts.js";
+import { buildExecutePrompt, buildDesignExecutionSection } from "../prompts.js";
 
 /**
  * Execute the plan for a phase.
@@ -61,11 +61,24 @@ export async function executePlan(
     contextContent = `Context for Phase ${phaseNumber} (not found)`;
   }
 
+  // Read design direction if available (.planning/DESIGN.md)
+  let designSection: string | undefined;
+  try {
+    const designPath = path.resolve(process.cwd(), ".planning", "DESIGN.md");
+    if (fs.existsSync(designPath)) {
+      const designContent = fs.readFileSync(designPath, "utf-8") as string;
+      designSection = buildDesignExecutionSection(designContent);
+    }
+  } catch {
+    // No design file — that's fine
+  }
+
   const prompt = buildExecutePrompt(
     phaseNumber,
     planContent,
     contextContent,
     mockInstructions,
+    designSection,
   );
 
   const cascadeResult = await runStepWithCascade(
