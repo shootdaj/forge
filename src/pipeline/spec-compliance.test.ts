@@ -11,6 +11,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   checkConvergence,
   verifyRequirement,
+  readRequirementsDoc,
   runSpecComplianceLoop,
 } from "./spec-compliance.js";
 import type { PipelineContext } from "./types.js";
@@ -498,6 +499,160 @@ describe("runSpecComplianceLoop", () => {
     expect(result.gapHistory[0]).toBe(3); // baseline
     // Each round should show decreasing gaps
     expect(result.remainingGaps).toContain("REQ-01");
+  });
+
+  it("TestSpecCompliance_Loop_IncludesRequirementsDocInVerification", async () => {
+    // Verify that when REQUIREMENTS.md is readable, its content
+    // is included in the verification prompt
+    const capturedPrompts: string[] = [];
+    const { ctx } = makeMockContext({
+      verifyResults: {
+        "REQ-01": { passed: true, gapDescription: "" },
+      },
+    });
+
+    // Override to capture prompts
+    (ctx.stepRunnerContext as any).executeQueryFn = async (opts: any) => {
+      const prompt = opts.prompt as string;
+      capturedPrompts.push(prompt);
+
+      if (prompt.includes("Verify whether each of the following requirements")) {
+        return {
+          ok: true,
+          result: '```json\n[{"id": "REQ-01", "passed": true, "gapDescription": ""}]\n```',
+          structuredOutput: null,
+          cost: { totalCostUsd: 0.01 },
+          sessionId: "mock",
+        };
+      }
+      return { ok: true, result: "done", structuredOutput: null, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+    };
+
+    // Inject a filesystem that returns a mock REQUIREMENTS.md
+    (ctx as any).fs = {
+      readFileSync: (p: string) => {
+        if (p === "REQUIREMENTS.md") return "## R1: User Auth\nUsers can log in";
+        throw new Error("Not found");
+      },
+      existsSync: () => false,
+      writeFileSync: () => {},
+      mkdirSync: () => {},
+    };
+
+    await runSpecComplianceLoop(["REQ-01"], ctx);
+
+    // The verification prompt should include the requirements content
+    const verifyPrompt = capturedPrompts.find((p) =>
+      p.includes("Verify whether each of the following requirements"),
+    );
+    expect(verifyPrompt).toBeDefined();
+    expect(verifyPrompt).toContain("User Auth");
+    expect(verifyPrompt).toContain("Full Requirements Document");
+  });
+
+  it("TestSpecCompliance_Loop_TargetedFixesWhenStuck", async () => {
+    // When batch fixes don't make progress, the loop should try targeted individual fixes
+    let round = 0;
+    let targetedFixCalled = false;
+    const { ctx } = makeMockContext({ maxComplianceRounds: 5 });
+
+    (ctx.stepRunnerContext as any).executeQueryFn = async (opts: any) => {
+      const prompt = opts.prompt as string;
+
+      if (prompt.includes("Verify whether each of the following requirements")) {
+        round++;
+        // Always return 2 failing requirements
+        return {
+          ok: true,
+          result: '```json\n[{"id":"REQ-01","passed":false,"gapDescription":"Broken"},{"id":"REQ-02","passed":false,"gapDescription":"Also broken"}]\n```',
+          structuredOutput: null,
+          cost: { totalCostUsd: 0.01 },
+          sessionId: "mock",
+        };
+      }
+
+      if (prompt.includes("TARGETED FIX")) {
+        targetedFixCalled = true;
+      }
+
+      return { ok: true, result: "done", structuredOutput: null, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+    };
+
+    const result = await runSpecComplianceLoop(["REQ-01", "REQ-02"], ctx);
+
+    // Should have tried targeted fixes
+    expect(targetedFixCalled).toBe(true);
+    // Should still be non-converging since nothing actually fixed
+    expect(result.converged).toBe(false);
+    expect(result.remainingGaps).toContain("REQ-01");
+  });
+
+  it("TestSpecCompliance_Loop_GapFixIncludesRequirementsDoc", async () => {
+    // Verify that gap fix prompts include the requirements document
+    const capturedPrompts: string[] = [];
+    let fixRound = 0;
+    const { ctx } = makeMockContext({ maxComplianceRounds: 2 });
+
+    (ctx.stepRunnerContext as any).executeQueryFn = async (opts: any) => {
+      const prompt = opts.prompt as string;
+      capturedPrompts.push(prompt);
+
+      if (prompt.includes("Verify whether each of the following requirements")) {
+        fixRound++;
+        if (fixRound === 1) {
+          return {
+            ok: true,
+            result: '```json\n[{"id":"REQ-01","passed":false,"gapDescription":"Missing feature"}]\n```',
+            structuredOutput: null,
+            cost: { totalCostUsd: 0.01 },
+            sessionId: "mock",
+          };
+        }
+        // Second round: pass
+        return {
+          ok: true,
+          result: '```json\n[{"id":"REQ-01","passed":true,"gapDescription":""}]\n```',
+          structuredOutput: null,
+          cost: { totalCostUsd: 0.01 },
+          sessionId: "mock",
+        };
+      }
+      return { ok: true, result: "done", structuredOutput: null, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+    };
+
+    (ctx as any).fs = {
+      readFileSync: (p: string) => {
+        if (p === "REQUIREMENTS.md") return "## R1: Feature\nSome feature desc";
+        throw new Error("Not found");
+      },
+      existsSync: () => false,
+      writeFileSync: () => {},
+      mkdirSync: () => {},
+    };
+
+    await runSpecComplianceLoop(["REQ-01"], ctx);
+
+    const fixPrompt = capturedPrompts.find((p) => p.includes("Fix ALL spec compliance gaps"));
+    expect(fixPrompt).toBeDefined();
+    expect(fixPrompt).toContain("Feature");
+    expect(fixPrompt).toContain("Full Requirements Document");
+  });
+
+  it("TestSpecCompliance_ReadRequirementsDoc_ReturnsContent", () => {
+    const mockFs = {
+      readFileSync: (p: string) => {
+        if (p === "REQUIREMENTS.md") return "# Requirements\n## R1: Test";
+        throw new Error("Not found");
+      },
+    };
+    expect(readRequirementsDoc(mockFs as any)).toBe("# Requirements\n## R1: Test");
+  });
+
+  it("TestSpecCompliance_ReadRequirementsDoc_ReturnsEmptyOnMissing", () => {
+    const mockFs = {
+      readFileSync: () => { throw new Error("ENOENT"); },
+    };
+    expect(readRequirementsDoc(mockFs as any)).toBe("");
   });
 
   it("TestSpecCompliance_Loop_UpdatesState", async () => {

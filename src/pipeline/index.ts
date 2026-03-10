@@ -34,6 +34,7 @@ export {
   checkConvergence,
   verifyRequirement,
   verifyRequirementsBatch,
+  readRequirementsDoc,
 } from "./spec-compliance.js";
 
 export {
@@ -43,6 +44,7 @@ export {
   buildSkippedItemPrompt,
   buildComplianceGapPrompt,
   buildBatchGapFixPrompt,
+  buildTargetedGapFixPrompt,
 } from "./prompts.js";
 
 export type {

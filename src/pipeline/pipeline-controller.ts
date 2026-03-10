@@ -474,18 +474,19 @@ async function executeFromWave3(
 
     if (!complianceResult.converged) {
       if (didMakeProgress(complianceResult.gapHistory)) {
-        // Made progress but didn't fully converge — continue to UAT with warning
+        // Made progress but didn't fully converge — the compliance loop already
+        // tried batch fixes + targeted individual fixes. Continue to UAT.
         console.warn(
-          `[forge] Warning: Spec compliance did not fully converge after ${complianceResult.roundsCompleted} rounds. ` +
-          `Remaining gaps: ${complianceResult.remainingGaps.join(", ")}. Continuing to UAT.`,
+          `[forge] Warning: Spec compliance has ${complianceResult.remainingGaps.length} remaining gaps after ${complianceResult.roundsCompleted} rounds ` +
+          `(batch + targeted fixes attempted): ${complianceResult.remainingGaps.join(", ")}. Continuing to UAT.`,
         );
       } else {
-        // Genuinely stuck — gaps not decreasing
+        // Genuinely stuck — gaps not decreasing even after targeted fixes
         await safeUpdateState(ctx, { status: "failed" });
         return {
           status: "stuck",
           wave: 3,
-          reason: `Spec compliance did not converge after ${complianceResult.roundsCompleted} rounds`,
+          reason: `Spec compliance did not converge after ${complianceResult.roundsCompleted} rounds (batch + targeted fixes attempted)`,
           nonConverging: true,
           gapHistory: complianceResult.gapHistory,
         };
