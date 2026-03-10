@@ -183,6 +183,49 @@ describe("MockManager - Service Detection", () => {
     expect(services[0].service).toBe("stripe");
   });
 
+  it("TestMockManager_DetectExternalServices_SQLiteNotDetected", () => {
+    const services = mockManager.detectExternalServices(
+      "Set up the SQLite database with all tables and seed data",
+      1,
+    );
+
+    const dbServices = services.filter((s) => s.service === "database");
+    expect(dbServices).toHaveLength(0);
+  });
+
+  it("TestMockManager_DetectExternalServices_PostgresDetected", () => {
+    const services = mockManager.detectExternalServices(
+      "Connect to Postgres database for user storage",
+      1,
+    );
+
+    const dbServices = services.filter((s) => s.service === "database");
+    expect(dbServices).toHaveLength(1);
+    expect(dbServices[0].credentialsNeeded).toContain("DATABASE_URL");
+  });
+
+  it("TestMockManager_DetectExternalServices_GenericDatabaseNotDetected", () => {
+    const services = mockManager.detectExternalServices(
+      "Build the database schema and define data models",
+      1,
+    );
+
+    // Generic "database" without postgres/mysql/etc should NOT trigger
+    const dbServices = services.filter((s) => s.service === "database");
+    expect(dbServices).toHaveLength(0);
+  });
+
+  it("TestMockManager_DetectExternalServices_CloudflareRequiresSpecificKeyword", () => {
+    const services = mockManager.detectExternalServices(
+      "Deploy to edge with CDN caching",
+      1,
+    );
+
+    // Generic "cdn" or "edge" should NOT trigger cloudflare
+    const cfServices = services.filter((s) => s.service === "cloudflare");
+    expect(cfServices).toHaveLength(0);
+  });
+
   it("TestMockManager_DetectExternalServices_NoDuplicates", () => {
     const services = mockManager.detectExternalServices(
       "Payment with Stripe, billing with Stripe, subscription with Stripe",

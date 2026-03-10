@@ -26,6 +26,7 @@ import type { MockEntry, ServiceDetection } from "./types.js";
  */
 const KNOWN_SERVICES: ReadonlyArray<{
   keywords: string[];
+  excludeKeywords?: string[];
   service: string;
   signupUrl: string;
   credentialsNeeded: string[];
@@ -123,14 +124,15 @@ const KNOWN_SERVICES: ReadonlyArray<{
     why: "Firebase services",
   },
   {
-    keywords: ["database", "postgres", "mysql", "mongodb"],
+    keywords: ["postgres", "mysql", "mongodb", "neon", "supabase", "planetscale"],
+    excludeKeywords: ["sqlite", "better-sqlite", "libsql", "in-memory"],
     service: "database",
     signupUrl: "",
     credentialsNeeded: ["DATABASE_URL"],
     why: "Database connection",
   },
   {
-    keywords: ["cloudflare", "cdn", "edge"],
+    keywords: ["cloudflare workers", "cloudflare r2", "cloudflare kv"],
     service: "cloudflare",
     signupUrl: "https://dash.cloudflare.com/sign-up",
     credentialsNeeded: ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ZONE_ID"],
@@ -214,6 +216,12 @@ export class MockManager {
     for (const known of KNOWN_SERVICES) {
       // Skip if we already detected this service
       if (seenServices.has(known.service)) continue;
+
+      // Check if any exclude keyword matches (local/embedded services)
+      const excluded = known.excludeKeywords?.some((kw) =>
+        descLower.includes(kw),
+      );
+      if (excluded) continue;
 
       // Check if any keyword matches
       const matched = known.keywords.some((kw) => descLower.includes(kw));
