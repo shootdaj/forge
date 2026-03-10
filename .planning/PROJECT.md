@@ -11,7 +11,7 @@ Every step verified by code, not agent self-report. Forge maximizes autonomous p
 ## Current State
 
 **Shipped:** v1.0 MVP (2026-03-08)
-**Stats:** 25,933 LOC TypeScript, 697 tests, 86 commits, 200 files, 8 phases, 20 plans
+**Stats:** 29,132 LOC TypeScript, 816 tests, 97 commits, 218 files, 8 phases, 20 plans
 
 **What works:**
 - CLI with commands: init, run, phase, status, resume
@@ -82,4 +82,4 @@ All 90 requirements shipped and validated. See [archived requirements](milestone
 | Raw async iterator over for-await on SDK stream | for-await blocks on iterator.return() at child process exit | Validated — manual next() with Promise.race timeout |
 
 ---
-*Last updated: 2026-03-09 after v1.0 milestone completion*
+*Last updated: 2026-03-10 after v1.0 milestone completion*

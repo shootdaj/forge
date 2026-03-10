@@ -18,7 +18,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-09)
 
 **Core value:** Every step verified by code, not agent self-report. Forge maximizes autonomous progress.
-**Current status:** v1.0 MVP shipped. All 8 phases complete. 697 tests. 90 requirements validated.
+**Current status:** v1.0 MVP shipped. All 8 phases complete. 816 tests. 90 requirements validated.
 
 ## Current Position
 
