@@ -10,9 +10,10 @@
  * Requirements: PIPE-07, PIPE-08
  */
 
+import * as nodeFs from "node:fs";
 import type { PipelineContext, SpecComplianceResult } from "./types.js";
 import { runStep } from "../step-runner/step-runner.js";
-import { buildBatchGapFixPrompt } from "./prompts.js";
+import { buildBatchGapFixPrompt, buildTargetedGapFixPrompt } from "./prompts.js";
 
 /**
  * Check whether the gap history indicates convergence.
@@ -98,18 +99,33 @@ export function checkConvergence(gapHistory: number[]): {
  *
  * @param requirementId - The requirement ID to verify
  * @param ctx - Pipeline context with step runner dependencies
+ * @param requirementsDoc - Optional full REQUIREMENTS.md content for context
  * @returns Object with passed flag and gap description
  */
 export async function verifyRequirement(
   requirementId: string,
   ctx: PipelineContext,
+  requirementsDoc?: string,
 ): Promise<{ passed: boolean; gapDescription: string }> {
+  const requirementsSection = requirementsDoc
+    ? [
+        "",
+        "## Requirements Document",
+        `Find requirement ${requirementId} in the document below:`,
+        "",
+        "```markdown",
+        requirementsDoc,
+        "```",
+        "",
+      ].join("\n")
+    : "";
+
   const result = await runStep(
     `verify-requirement-${requirementId}`,
     {
       prompt: [
         `Verify whether requirement ${requirementId} is fully implemented and working.`,
-        "",
+        requirementsSection,
         "Check the codebase for:",
         "1. Implementation code that addresses the requirement",
         "2. Tests that verify the requirement behavior",
@@ -169,12 +185,30 @@ export async function verifyRequirement(
  * Falls back to individual verification if batch parsing fails.
  *
  * Requirement: PIPE-07
+ *
+ * @param requirementIds - Array of requirement IDs to verify
+ * @param ctx - Pipeline context with step runner dependencies
+ * @param requirementsDoc - Full REQUIREMENTS.md content for context
  */
 export async function verifyRequirementsBatch(
   requirementIds: string[],
   ctx: PipelineContext,
+  requirementsDoc?: string,
 ): Promise<Array<{ id: string; passed: boolean; gapDescription: string }>> {
   const reqList = requirementIds.map((id) => `- ${id}`).join("\n");
+
+  const requirementsSection = requirementsDoc
+    ? [
+        "",
+        "## Full Requirements Document",
+        "Use this document to understand what each requirement ID means:",
+        "",
+        "```markdown",
+        requirementsDoc,
+        "```",
+        "",
+      ].join("\n")
+    : "";
 
   const result = await runStep(
     `verify-requirements-batch`,
@@ -184,11 +218,16 @@ export async function verifyRequirementsBatch(
         "",
         "Requirements to check:",
         reqList,
+        requirementsSection,
+        "For EACH requirement, thoroughly check:",
+        "1. Read the requirement description from the document above to understand exactly what is expected",
+        "2. Search the codebase for implementation code that addresses the requirement",
+        "3. Check for tests that verify the requirement behavior",
+        "4. Test the actual functionality by running the app/tests where possible",
+        "5. Flag any obvious bugs, missing edge cases, or incomplete implementations",
         "",
-        "For each requirement, check:",
-        "1. Implementation code that addresses the requirement",
-        "2. Tests that verify the requirement behavior",
-        "3. No obvious bugs or missing edge cases",
+        "Be STRICT: a requirement only passes if it is FULLY implemented with working code and tests.",
+        "Partial implementations should FAIL with a clear description of what is missing.",
         "",
         "After analyzing ALL requirements, output your verdicts as a single JSON code block containing an array:",
         "```json",
@@ -329,6 +368,19 @@ function extractJsonVerdictArray(
 }
 
 /**
+ * Read the REQUIREMENTS.md file from the project directory.
+ * Returns empty string if file not found.
+ */
+export function readRequirementsDoc(fs?: { readFileSync: typeof nodeFs.readFileSync }): string {
+  const fsImpl = fs ?? nodeFs;
+  try {
+    return fsImpl.readFileSync("REQUIREMENTS.md", "utf-8") as string;
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Run the spec compliance loop.
  *
  * Iteratively verifies all requirements and fixes gaps until either:
@@ -336,7 +388,10 @@ function extractJsonVerdictArray(
  * - Gaps stop decreasing (not converging)
  * - Max rounds exhausted
  *
- * Implements the loop from SPEC.md lines 534-598.
+ * Key improvements:
+ * - Reads REQUIREMENTS.md and includes full requirement descriptions in all prompts
+ * - When batch fixes stall, falls back to targeted individual fixes
+ * - Allows one "stuck" round before giving up (tries different approach)
  *
  * Requirements: PIPE-07, PIPE-08
  *
@@ -358,10 +413,16 @@ export async function runSpecComplianceLoop(
     };
   }
 
+  // Read REQUIREMENTS.md for context — agents need to know what each ID means
+  const requirementsDoc = readRequirementsDoc(
+    ctx.fs ? { readFileSync: ctx.fs.readFileSync } : undefined,
+  );
+
   const maxRounds = ctx.config.maxComplianceRounds;
 
   // Seed gapHistory with baseline (total requirements)
   const gapHistory: number[] = [requirementIds.length];
+  let usedTargetedFix = false;
 
   // Update state: entering wave 3
   try {
@@ -381,7 +442,7 @@ export async function runSpecComplianceLoop(
 
   for (let round = 1; round <= maxRounds; round++) {
     // Verify all requirements in a single batch session
-    const verdicts = await verifyRequirementsBatch(requirementIds, ctx);
+    const verdicts = await verifyRequirementsBatch(requirementIds, ctx, requirementsDoc);
     const gaps: Array<{ id: string; description: string }> = [];
 
     for (const verdict of verdicts) {
@@ -424,6 +485,15 @@ export async function runSpecComplianceLoop(
     if (round > 1) {
       const convergence = checkConvergence(gapHistory);
       if (!convergence.converging) {
+        // Before giving up: try targeted individual fixes (once)
+        if (!usedTargetedFix) {
+          console.log(`[compliance] Batch fixes stuck at ${gaps.length} gaps — switching to targeted individual fixes`);
+          usedTargetedFix = true;
+          await runTargetedGapFixes(gaps, round, ctx, requirementsDoc);
+          // Don't return — let the loop re-verify in the next iteration
+          continue;
+        }
+        // Already tried targeted fixes — truly stuck
         return {
           converged: false,
           roundsCompleted: round,
@@ -437,7 +507,7 @@ export async function runSpecComplianceLoop(
     await runStep(
       `fix-gaps-round-${round}`,
       {
-        prompt: buildBatchGapFixPrompt(gaps, round),
+        prompt: buildBatchGapFixPrompt(gaps, round, requirementsDoc),
         verify: async () => true, // Gap fixes verified in next round
       },
       ctx.stepRunnerContext,
@@ -447,15 +517,41 @@ export async function runSpecComplianceLoop(
 
   // Exhausted max rounds without full convergence
   // Re-verify in batch to get the latest gap list
-  const finalVerdicts = await verifyRequirementsBatch(requirementIds, ctx);
+  const finalVerdicts = await verifyRequirementsBatch(requirementIds, ctx, requirementsDoc);
   const remainingGaps = finalVerdicts
     .filter((v) => !v.passed)
     .map((v) => v.id);
 
   return {
-    converged: false,
+    converged: remainingGaps.length === 0,
     roundsCompleted: maxRounds,
     gapHistory,
     remainingGaps,
   };
+}
+
+/**
+ * Fix gaps individually with targeted prompts.
+ *
+ * When batch fixes stall (same gap count across rounds), this function
+ * fixes each gap in its own dedicated SDK session. Individual sessions
+ * give the agent full focus on one requirement at a time.
+ */
+async function runTargetedGapFixes(
+  gaps: Array<{ id: string; description: string }>,
+  round: number,
+  ctx: PipelineContext,
+  requirementsDoc: string,
+): Promise<void> {
+  for (const gap of gaps) {
+    await runStep(
+      `fix-gap-targeted-${gap.id}-round-${round}`,
+      {
+        prompt: buildTargetedGapFixPrompt(gap.id, gap.description, round, requirementsDoc),
+        verify: async () => true,
+      },
+      ctx.stepRunnerContext,
+      ctx.costController,
+    );
+  }
 }

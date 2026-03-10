@@ -204,29 +204,94 @@ export function buildComplianceGapPrompt(
  *
  * @param gaps - Array of { id, description } for each gap
  * @param round - Current compliance round number
+ * @param requirementsDoc - Full REQUIREMENTS.md content for context
  * @returns Prompt string for the batch gap fix step
  */
 export function buildBatchGapFixPrompt(
   gaps: Array<{ id: string; description: string }>,
   round: number,
+  requirementsDoc?: string,
 ): string {
   const gapList = gaps
     .map((g) => `### ${g.id}\n${g.description}`)
     .join("\n\n");
 
+  const requirementsSection = requirementsDoc
+    ? [
+        "",
+        "## Full Requirements Document",
+        "Reference this to understand the full scope of each requirement:",
+        "",
+        "```markdown",
+        requirementsDoc,
+        "```",
+        "",
+      ].join("\n")
+    : "";
+
   return [
     `Fix ALL spec compliance gaps below (round ${round}). There are ${gaps.length} gaps to fix.`,
-    "",
+    requirementsSection,
     "## Gaps to fix:",
     "",
     gapList,
     "",
     "## Instructions:",
-    "1. Work through each gap systematically",
-    "2. For each gap: analyze what's missing, implement the fix, write/update tests",
-    "3. Run the test suite periodically to verify fixes don't break other things",
-    "4. Focus on the most impactful gaps first (core functionality before edge cases)",
-    `5. This is compliance round ${round} -- if prior rounds failed to fix a gap, try a different approach`,
-    "6. After fixing all gaps, run the full test suite to verify everything passes",
+    "1. Read the REQUIREMENTS document above to understand the FULL scope of each requirement",
+    "2. Work through each gap systematically",
+    "3. For each gap: analyze what's missing, implement the fix, write/update tests",
+    "4. Run the test suite periodically to verify fixes don't break other things",
+    "5. Focus on the most impactful gaps first (core functionality before edge cases)",
+    `6. This is compliance round ${round} -- if prior rounds failed to fix a gap, try a DIFFERENT approach`,
+    "7. After fixing all gaps, run the full test suite to verify everything passes",
+    "8. Do NOT skip any gaps — every gap must be addressed",
+  ].join("\n");
+}
+
+/**
+ * Build prompt for fixing a SINGLE spec compliance gap in a targeted session.
+ *
+ * Used when batch fixes stall — gives the agent full focus on one requirement.
+ *
+ * @param requirementId - The requirement ID to fix
+ * @param gapDescription - Description of what's missing
+ * @param round - Current compliance round number
+ * @param requirementsDoc - Full REQUIREMENTS.md content for context
+ * @returns Prompt string for the targeted gap fix step
+ */
+export function buildTargetedGapFixPrompt(
+  requirementId: string,
+  gapDescription: string,
+  round: number,
+  requirementsDoc?: string,
+): string {
+  const requirementsSection = requirementsDoc
+    ? [
+        "",
+        "## Requirements Document",
+        `Find requirement ${requirementId} in the document below to understand its FULL scope:`,
+        "",
+        "```markdown",
+        requirementsDoc,
+        "```",
+        "",
+      ].join("\n")
+    : "";
+
+  return [
+    `TARGETED FIX: Implement requirement ${requirementId} completely (round ${round}).`,
+    "",
+    "## Gap Description:",
+    gapDescription,
+    requirementsSection,
+    "## Instructions:",
+    `1. Find requirement ${requirementId} in the requirements document above and read its FULL description`,
+    "2. Search the codebase for any existing partial implementation",
+    "3. Implement the requirement COMPLETELY — not partially, not superficially",
+    "4. Write comprehensive tests that verify the requirement works end-to-end",
+    "5. Run tests to ensure nothing is broken",
+    `6. This is round ${round} — previous batch fixes failed to address this. Take a FRESH approach.`,
+    "7. If the requirement involves UI, make sure the UI actually renders and is interactive",
+    "8. If the requirement involves data, make sure data flows correctly from input to storage to display",
   ].join("\n");
 }
