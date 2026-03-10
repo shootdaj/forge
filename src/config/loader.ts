@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { ForgeConfigSchema, type ForgeConfig, type ForgeConfigRaw } from "./schema.js";
 import { snakeToCamelKeys } from "../utils/case-transform.js";
+import { loadGlobalConfig } from "./global.js";
 
 /**
  * Error thrown when config validation fails.
@@ -51,7 +52,7 @@ export const CONFIG_FILE_NAME = "forge.config.json";
 export function loadConfig(projectDir: string): ForgeConfig {
   const configPath = path.join(projectDir, CONFIG_FILE_NAME);
 
-  let rawJson: unknown;
+  let rawJson: Record<string, unknown>;
 
   if (!fs.existsSync(configPath)) {
     // No config file — use all defaults
@@ -68,7 +69,25 @@ export function loadConfig(projectDir: string): ForgeConfig {
     }
   }
 
-  const result = ForgeConfigSchema.safeParse(rawJson);
+  // Merge global config as base layer — project config overrides
+  const globalConfig = loadGlobalConfig();
+  const merged: Record<string, unknown> = { ...rawJson };
+
+  // Inherit model from global if not set in project
+  if (!merged.model && globalConfig.model) {
+    merged.model = globalConfig.model;
+  }
+
+  // Inherit Notion parent_page_id from global if not set in project
+  const projectNotion = (merged.notion as Record<string, unknown>) ?? {};
+  if (!projectNotion.parent_page_id && globalConfig.notion.parent_page_id) {
+    merged.notion = {
+      ...projectNotion,
+      parent_page_id: globalConfig.notion.parent_page_id,
+    };
+  }
+
+  const result = ForgeConfigSchema.safeParse(merged);
 
   if (!result.success) {
     const issues = result.error.issues.map((issue) => ({

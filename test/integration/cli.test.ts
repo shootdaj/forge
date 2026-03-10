@@ -543,12 +543,13 @@ describe("CLI command wiring integration", () => {
     const cli = createCli();
 
     const commandNames = cli.commands.map((c) => c.name());
+    expect(commandNames).toContain("setup");
     expect(commandNames).toContain("init");
     expect(commandNames).toContain("run");
     expect(commandNames).toContain("phase");
     expect(commandNames).toContain("status");
     expect(commandNames).toContain("resume");
-    expect(commandNames).toHaveLength(5);
+    expect(commandNames).toHaveLength(6);
   });
 
   it("TestCliWiring_ResumeCommandHasEnvOption", async () => {
