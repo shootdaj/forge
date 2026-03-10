@@ -12,6 +12,7 @@ import {
   extractDeployFailure,
   extractSmokeTestResult,
   extractProtectionBypass,
+  extractHealthEndpoint,
   runDeployment,
 } from "./deployer.js";
 import { buildSmokeTestPrompt, buildDeployPrompt } from "./prompts.js";
@@ -117,6 +118,21 @@ describe("extractProtectionBypass", () => {
   it("strips trailing punctuation", () => {
     expect(extractProtectionBypass("PROTECTION_BYPASS: token123."))
       .toBe("token123");
+  });
+});
+
+describe("extractHealthEndpoint", () => {
+  it("extracts health endpoint from output", () => {
+    const output = "Deploying...\nHEALTH_ENDPOINT: /api/v1/health\nDone.";
+    expect(extractHealthEndpoint(output)).toBe("/api/v1/health");
+  });
+
+  it("returns null when no health endpoint", () => {
+    expect(extractHealthEndpoint("Deployed successfully")).toBeNull();
+  });
+
+  it("handles root path", () => {
+    expect(extractHealthEndpoint("HEALTH_ENDPOINT: /")).toBe("/");
   });
 });
 
@@ -406,6 +422,15 @@ describe("buildDeployPrompt platform warnings", () => {
     });
     expect(prompt).toContain("Deployment Protection");
     expect(prompt).toContain("PROTECTION_BYPASS");
+  });
+
+  it("instructs agent to output HEALTH_ENDPOINT", () => {
+    const prompt = buildDeployPrompt({
+      target: "vercel",
+      environments: ["production"],
+      projectDir: "/project",
+    });
+    expect(prompt).toContain("HEALTH_ENDPOINT:");
   });
 
   it("warns about SQLite on Netlify", () => {

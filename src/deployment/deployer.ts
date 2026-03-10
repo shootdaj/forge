@@ -176,6 +176,7 @@ export async function runDeployment(
     let deployedUrl = extractDeployedUrl(output);
     const deployFailure = extractDeployFailure(output);
     const protectionBypass = extractProtectionBypass(output);
+    const healthEndpoint = extractHealthEndpoint(output);
 
     if (deployFailure || !deployedUrl) {
       attempts.push({
@@ -193,7 +194,7 @@ export async function runDeployment(
     // Health check the deployed URL (with bypass header if deployment protection is active)
     const healthResult = await checkDeploymentHealth({
       url: currentUrl,
-      healthEndpoint: "/",
+      healthEndpoint: healthEndpoint ?? "/",
       retries: 3,
       retryDelayMs: ctx.healthCheckRetryDelayMs ?? 5_000,
       fetchFn: ctx.fetchFn,
@@ -299,6 +300,16 @@ export async function runDeployment(
  */
 export function extractProtectionBypass(output: string): string | null {
   const match = output.match(/PROTECTION_BYPASS:\s*(\S+)/i);
+  return match ? match[1].replace(/[.,;)}\]]+$/, "") : null;
+}
+
+/**
+ * Extract health endpoint path from agent output.
+ *
+ * Looks for "HEALTH_ENDPOINT: <path>" pattern in the step result.
+ */
+export function extractHealthEndpoint(output: string): string | null {
+  const match = output.match(/HEALTH_ENDPOINT:\s*(\S+)/i);
   return match ? match[1].replace(/[.,;)}\]]+$/, "") : null;
 }
 

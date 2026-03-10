@@ -124,7 +124,10 @@ export function buildDeployPrompt(opts: {
     "",
     "4. Print the deployed URL on its own line prefixed with DEPLOYED_URL:",
     "   Example: DEPLOYED_URL: https://my-app.vercel.app",
-    "5. If deployment fails, print DEPLOY_FAILED: <reason>",
+    "5. Print the health check endpoint path (the endpoint that returns 200 when the app is working):",
+    "   Example: HEALTH_ENDPOINT: /api/health",
+    "   If the app has no dedicated health endpoint, use the root path: HEALTH_ENDPOINT: /",
+    "6. If deployment fails, print DEPLOY_FAILED: <reason>",
   );
 
   return parts.join("\n");
