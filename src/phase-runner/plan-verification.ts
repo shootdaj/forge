@@ -127,7 +127,7 @@ export function verifyPlanCoverage(
   );
 
   return {
-    passed: missingRequirements.length === 0 && hasTestTasks,
+    passed: missingRequirements.length === 0,
     coveredRequirements,
     missingRequirements,
     hasTestTasks,

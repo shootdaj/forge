@@ -266,8 +266,8 @@ describe("verifyPlanCoverage", () => {
       "PHA-05",
     ]);
 
-    // PLAN_WITHOUT_TESTS has no test keywords
-    expect(result.passed).toBe(false);
+    // PLAN_WITHOUT_TESTS has no test keywords, but passed only depends on requirement coverage
+    expect(result.passed).toBe(true);
     expect(result.hasTestTasks).toBe(false);
   });
 
