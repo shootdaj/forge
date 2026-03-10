@@ -215,6 +215,7 @@ export function buildExecutePrompt(
   planContent: string,
   contextContent: string,
   mockInstructions?: string,
+  designSection?: string,
 ): string {
   const mockSection = mockInstructions
     ? `\n## Mock Instructions\n\nExternal services should be implemented using the mock pattern:\n${mockInstructions}\n\nFollow the interface/mock/real/factory pattern. Tag mock files with FORGE:MOCK comments.\n`
@@ -227,7 +228,7 @@ ${contextContent}
 
 ## Plan
 ${planContent}
-${mockSection}
+${mockSection}${designSection ?? ""}
 ## Instructions
 
 1. **Check existing files and continue from where you left off** -- do not redo completed work
@@ -408,6 +409,94 @@ Create a PHASE_REPORT.md file summarizing this phase's execution:
 8. **Next Steps** -- what the next phase needs to know
 
 Write PHASE_REPORT.md to the EXACT path: \`${phaseDir ?? `.planning/phases/${String(phaseNumber).padStart(2, "0")}-phase-${phaseNumber}`}/PHASE_REPORT.md\``;
+}
+
+/**
+ * Build the prompt for generating frontend design options.
+ *
+ * Instructs the agent to create multiple design concepts for the user
+ * to choose from or mix-and-match. Uses the UI/UX design skill.
+ *
+ * @param phaseNumber - The phase number
+ * @param contextContent - Content of CONTEXT.md
+ * @param designCount - Number of design options to generate (default 3)
+ * @param phaseDir - Path to write DESIGNS.md
+ * @returns Prompt string for the design generation step
+ */
+export function buildDesignPrompt(
+  phaseNumber: number,
+  contextContent: string,
+  designCount: number = 3,
+  phaseDir?: string,
+): string {
+  return `You are creating frontend design options for Phase ${phaseNumber}.
+
+## Context
+${contextContent}
+
+## Your Task
+
+Use the /ui-ux-pro-max skill to generate **${designCount} distinct design concepts** for this phase's UI.
+
+For each design concept, provide:
+1. **Name** — a short descriptive name (e.g., "Minimal Dashboard", "Data-Dense Pro", "Playful Cards")
+2. **Style** — the visual style (e.g., minimalism, glassmorphism, bento grid, flat design)
+3. **Color palette** — primary, secondary, accent colors with hex codes
+4. **Typography** — font pairing (heading + body fonts)
+5. **Layout approach** — how the main content is organized (sidebar, top-nav, cards, data tables, etc.)
+6. **Component highlights** — key UI components and how they look (charts, forms, navigation)
+7. **Screenshot/mockup description** — describe what the main page would look like in detail
+
+Make the designs genuinely different — don't just change colors. Vary the layout, density, visual style, and information architecture.
+
+Write all ${designCount} design concepts to: \`${phaseDir ?? `.planning/phases/${String(phaseNumber).padStart(2, "0")}-phase-${phaseNumber}`}/DESIGNS.md\`
+
+Use this format:
+
+\`\`\`markdown
+# Phase ${phaseNumber}: Design Options
+
+## Option A: [Name]
+**Style:** [style]
+**Palette:** [colors]
+**Typography:** [fonts]
+**Layout:** [description]
+**Components:** [highlights]
+**Preview:** [detailed description of main page]
+
+---
+
+## Option B: [Name]
+...
+\`\`\`
+
+After writing DESIGNS.md, print:
+DESIGN_OPTIONS_READY: ${designCount} options written`;
+}
+
+/**
+ * Build the prompt for executing with a chosen design direction.
+ *
+ * Appended to the execute prompt when a design has been selected.
+ *
+ * @param designContent - The chosen design description
+ * @returns Prompt section for design-aware execution
+ */
+export function buildDesignExecutionSection(designContent: string): string {
+  return `
+## Frontend Design Direction
+
+The user has selected the following design direction. You MUST follow it for all frontend work:
+
+${designContent}
+
+Use the /ui-ux-pro-max skill for implementing UI components. Follow the chosen:
+- Color palette exactly (use the hex codes provided)
+- Typography (install the specified fonts)
+- Layout approach
+- Component style
+
+If you need to make design decisions not covered above, stay consistent with the chosen style.`;
 }
 
 /**

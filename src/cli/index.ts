@@ -23,6 +23,7 @@ import { formatStatus } from "./status.js";
 import { createTestGuide, injectTestingMethodology } from "./traceability.js";
 import { gatherRequirements } from "../requirements/index.js";
 import { createDocPages } from "../docs/index.js";
+import { runDesignSelection, detectGuiApp } from "../phase-runner/substeps/design.js";
 import type { PipelineContext, PipelineResult } from "../pipeline/types.js";
 import type { PhaseRunnerContext, PhaseResult } from "../phase-runner/types.js";
 import type { ForgeConfig } from "../config/schema.js";
@@ -198,6 +199,23 @@ export function createCli(): Command {
           console.warn(
             `Requirements gathering failed: ${reqErr instanceof Error ? reqErr.message : String(reqErr)}. You can re-run with \`forge init\`.`,
           );
+        }
+
+        // Design selection for GUI apps
+        const reqContent2 = fs.existsSync("REQUIREMENTS.md")
+          ? fs.readFileSync("REQUIREMENTS.md", "utf-8")
+          : "";
+        const isGui = config.frontend?.hasGui || detectGuiApp(reqContent2);
+        if (isGui && config.frontend?.designInteractive !== false) {
+          try {
+            await runDesignSelection(config, reqContent2, {
+              executeQueryFn: executeQuery,
+            });
+          } catch (designErr) {
+            console.warn(
+              `Design selection skipped: ${designErr instanceof Error ? designErr.message : String(designErr)}`,
+            );
+          }
         }
 
         // Generate roadmap from SPEC + requirements using Agent SDK
