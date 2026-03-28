@@ -4,7 +4,7 @@
  * Zod schema for forge.config.json with sensible defaults for all fields.
  * JSON uses snake_case; TypeScript maps to camelCase via the serialization layer.
  *
- * Requirements: CFG-01, CFG-02, CFG-03
+ * Requirements: CFG-01, CFG-02, CFG-03, CFG-04, CFG-05
  */
 
 import { z } from "zod";
@@ -21,6 +21,9 @@ const TestingConfigSchema = z.object({
     .default("npm run test:integration -- --json"),
   scenario_command: z.string().default("npm run test:e2e"),
   docker_compose_file: z.string().default("docker-compose.test.yml"),
+  flutter_avd_name: z.string().default(""),
+  flutter_build_flavor: z.string().default(""),
+  maestro_flows_dir: z.string().default(".maestro"),
 });
 
 /**
@@ -36,6 +39,8 @@ const VerificationConfigSchema = z.object({
   test_coverage_check: z.boolean().default(true),
   observability_check: z.boolean().default(false),
   deployment: z.boolean().default(false),
+  mobile_build: z.boolean().default(false),
+  mobile_analyze: z.boolean().default(false),
 });
 
 /**
@@ -143,6 +148,9 @@ export interface ForgeConfig {
     integrationCommand: string;
     scenarioCommand: string;
     dockerComposeFile: string;
+    flutterAvdName: string;
+    flutterBuildFlavor: string;
+    maestroFlowsDir: string;
   };
   verification: {
     files: boolean;
@@ -153,6 +161,8 @@ export interface ForgeConfig {
     testCoverageCheck: boolean;
     observabilityCheck: boolean;
     deployment: boolean;
+    mobileBuild: boolean;
+    mobileAnalyze: boolean;
   };
   notion: {
     parentPageId: string;

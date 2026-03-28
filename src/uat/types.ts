@@ -17,10 +17,11 @@ import type { CostController } from "../step-runner/cost-controller.js";
  * - "web": headless browser testing (Playwright)
  * - "api": HTTP-based testing (curl/fetch)
  * - "cli": shell command testing (stdout/stderr/exit codes)
+ * - "flutter": Flutter mobile app testing (pub get, analyze, test, build, Maestro)
  *
- * Requirement: UAT-02
+ * Requirement: UAT-02, DET-02
  */
-export type AppType = "web" | "api" | "cli";
+export type AppType = "web" | "api" | "cli" | "flutter";
 
 /**
  * A single user workflow extracted from REQUIREMENTS.md.

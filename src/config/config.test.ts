@@ -307,6 +307,59 @@ describe("Config Module", () => {
     });
   });
 
+  describe("TestConfigSchema_FlutterFields_CFG04_CFG05", () => {
+    it("provides default values for flutter config fields", () => {
+      const config = loadConfig(tempDir); // No config file = all defaults
+      expect(config.testing.flutterAvdName).toBe("");
+      expect(config.testing.flutterBuildFlavor).toBe("");
+      expect(config.testing.maestroFlowsDir).toBe(".maestro");
+      expect(config.verification.mobileBuild).toBe(false);
+      expect(config.verification.mobileAnalyze).toBe(false);
+    });
+
+    it("accepts custom flutter config values", () => {
+      fs.writeFileSync(
+        path.join(tempDir, CONFIG_FILE_NAME),
+        JSON.stringify({
+          testing: {
+            flutter_avd_name: "Pixel_7_API_34",
+            flutter_build_flavor: "staging",
+            maestro_flows_dir: "test/flows",
+          },
+          verification: {
+            mobile_build: true,
+            mobile_analyze: true,
+          },
+        }),
+      );
+
+      const config = loadConfig(tempDir);
+      expect(config.testing.flutterAvdName).toBe("Pixel_7_API_34");
+      expect(config.testing.flutterBuildFlavor).toBe("staging");
+      expect(config.testing.maestroFlowsDir).toBe("test/flows");
+      expect(config.verification.mobileBuild).toBe(true);
+      expect(config.verification.mobileAnalyze).toBe(true);
+    });
+
+    it("existing config without flutter fields still validates", () => {
+      fs.writeFileSync(
+        path.join(tempDir, CONFIG_FILE_NAME),
+        JSON.stringify({
+          model: "claude-opus-4-6",
+          testing: { stack: "node" },
+          verification: { files: true },
+        }),
+      );
+
+      const config = loadConfig(tempDir);
+      // Flutter fields should get defaults
+      expect(config.testing.flutterAvdName).toBe("");
+      expect(config.verification.mobileBuild).toBe(false);
+      // Non-flutter fields should work as before
+      expect(config.testing.stack).toBe("node");
+    });
+  });
+
   describe("TestLoadConfig_CamelCaseMapping_CFG02", () => {
     it("CFG-02: snake_case JSON keys are mapped to camelCase TypeScript properties", () => {
       fs.writeFileSync(

@@ -13,6 +13,7 @@ import {
   buildIntegrationPrompt,
   buildSkippedItemPrompt,
   buildComplianceGapPrompt,
+  buildMobileContextPrompt,
 } from "./prompts.js";
 import type { ForgeState } from "../state/schema.js";
 import type { ServiceDetection } from "./types.js";
@@ -222,5 +223,42 @@ describe("buildComplianceGapPrompt", () => {
     expect(prompt).toContain("round 1");
     expect(prompt).toContain("database migration");
     expect(prompt).toContain("compliance round 1");
+  });
+});
+
+describe("buildMobileContextPrompt", () => {
+  it("TestPrompts_MobileContext_IncludesSigningConfig", () => {
+    const prompt = buildMobileContextPrompt();
+    expect(prompt).toContain("Signing Configuration");
+    expect(prompt).toContain("debug keystore");
+    expect(prompt).toContain("signingConfigs");
+  });
+
+  it("TestPrompts_MobileContext_IncludesBundleId", () => {
+    const prompt = buildMobileContextPrompt();
+    expect(prompt).toContain("Application ID");
+    expect(prompt).toContain("bundleIdentifier");
+    expect(prompt).toContain("applicationId");
+  });
+
+  it("TestPrompts_MobileContext_IncludesSemanticIdentifiers", () => {
+    const prompt = buildMobileContextPrompt();
+    expect(prompt).toContain("ValueKey");
+    expect(prompt).toContain("semanticsLabel");
+    expect(prompt).toContain("Maestro");
+  });
+
+  it("TestPrompts_MobileContext_IncludesPlatformBuilds", () => {
+    const prompt = buildMobileContextPrompt();
+    expect(prompt).toContain("flutter build apk --debug");
+    expect(prompt).toContain("--no-codesign");
+    expect(prompt).toContain("flutter build appbundle");
+  });
+
+  it("TestPrompts_MobileContext_IncludesPlatformConstraints", () => {
+    const prompt = buildMobileContextPrompt();
+    expect(prompt).toContain("Android minimum SDK");
+    expect(prompt).toContain("iOS minimum deployment target");
+    expect(prompt).toContain("pubspec.yaml");
   });
 });
