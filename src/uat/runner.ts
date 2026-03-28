@@ -23,6 +23,10 @@ import type {
 import { extractUserWorkflows, buildSafetyPrompt, runUATGapClosure } from "./workflows.js";
 import { runStep as defaultRunStep } from "../step-runner/step-runner.js";
 import { BudgetExceededError } from "../step-runner/types.js";
+import { withEmulator } from "./emulator.js";
+import { withFlutterRun } from "./flutter-run.js";
+import { executeMaestroUAT, maestroResultToWorkflowResults } from "./maestro.js";
+import type { EmulatorStartOptions } from "./emulator-types.js";
 
 /**
  * Detect the application type from the project configuration.
@@ -245,17 +249,62 @@ export function buildUATPrompt(
       break;
     case "flutter":
       lines.push(
-        "This is a Flutter mobile app. Use Maestro CLI to test this workflow on the emulator.",
+        "This is a Flutter mobile app. UAT uses Maestro CLI to test workflows on the Android emulator.",
+      );
+      lines.push("");
+      lines.push("## Widget Identification (CRITICAL)");
+      lines.push("");
+      lines.push(
+        "All interactive Flutter widgets MUST have a `Key(ValueKey('semantic-id'))` for Maestro to find them.",
       );
       lines.push(
-        "Target widgets by semantic identifier (ValueKey), not coordinates.",
+        "Use descriptive IDs: `ValueKey('login-email-field')`, `ValueKey('submit-button')`, `ValueKey('todo-item-${index}')`.",
       );
       lines.push(
-        "Include waitForAnimationToEnd after navigation to prevent flakiness.",
+        "Maestro targets these via the `id` property in flow YAML — NOT by coordinates or text content.",
+      );
+      lines.push("");
+      lines.push("## Maestro Flow Requirements");
+      lines.push("");
+      lines.push(
+        "Write Maestro flow YAML files to the `.maestro/` directory. Each flow should:",
       );
       lines.push(
-        "Write Maestro flow YAML files to the .maestro/ directory.",
+        "1. Start with `appId:` pointing to the Flutter app's bundle ID",
       );
+      lines.push(
+        "2. Target widgets by `id:` (semantic identifier) — NEVER by coordinates",
+      );
+      lines.push(
+        "3. Include `- waitForAnimationToEnd` after EVERY navigation action (push, pop, tab switch)",
+      );
+      lines.push(
+        "4. Use `- assertVisible:` with semantic identifiers for verification",
+      );
+      lines.push(
+        "5. Use `- clearState` at the start of each flow for test isolation",
+      );
+      lines.push("");
+      lines.push("## Example Maestro Flow");
+      lines.push("");
+      lines.push("```yaml");
+      lines.push("appId: com.example.myapp");
+      lines.push("---");
+      lines.push("- clearState");
+      lines.push("- launchApp");
+      lines.push("- waitForAnimationToEnd");
+      lines.push("- tapOn:");
+      lines.push('    id: "login-email-field"');
+      lines.push("- inputText: \"test@example.com\"");
+      lines.push("- tapOn:");
+      lines.push('    id: "login-password-field"');
+      lines.push("- inputText: \"password123\"");
+      lines.push("- tapOn:");
+      lines.push('    id: "login-submit-button"');
+      lines.push("- waitForAnimationToEnd");
+      lines.push("- assertVisible:");
+      lines.push('    id: "home-screen"');
+      lines.push("```");
       break;
   }
 
@@ -388,6 +437,11 @@ export async function runUAT(ctx: UATContext): Promise<UATResult> {
 
   // 2. Detect app type
   const appType = detectAppType(config);
+
+  // Flutter apps use Maestro UAT, not Docker-based UAT
+  if (appType === "flutter") {
+    return await runFlutterUAT(ctx);
+  }
 
   // 3. Extract workflows
   const workflows = extractUserWorkflows(requirementsContent, appType);
@@ -558,4 +612,246 @@ export async function runUAT(ctx: UATContext): Promise<UATResult> {
   }
 
   return uatResult;
+}
+
+// ---------------------------------------------------------------------------
+// Flutter UAT Path
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the agent prompt for generating Maestro flow YAML files.
+ *
+ * Instructs the agent to create one flow per workflow with semantic
+ * identifiers and animation handling.
+ *
+ * Requirement: MAE-05, MAE-07
+ *
+ * @param workflows - User workflows to generate flows for
+ * @param safetyPrompt - Safety guardrails text
+ * @param flowsDir - Directory for Maestro flow files
+ * @returns Agent prompt string
+ */
+function buildFlutterFlowGenPrompt(
+  workflows: UATWorkflow[],
+  safetyPrompt: string,
+  flowsDir: string,
+): string {
+  const lines: string[] = [
+    "## Generate Maestro UAT Flows",
+    "",
+    `Write Maestro flow YAML files to the \`${flowsDir}/\` directory.`,
+    "Create one flow file per user workflow below.",
+    "",
+    "## Workflows to Test",
+    "",
+  ];
+
+  for (const wf of workflows) {
+    lines.push(`### ${wf.id}: ${wf.description}`);
+    wf.steps.forEach((step, i) => {
+      lines.push(`${i + 1}. ${step}`);
+    });
+    lines.push("");
+  }
+
+  lines.push("## Flow Requirements");
+  lines.push("");
+  lines.push(
+    "- Target widgets by `id:` (ValueKey semantic identifier) — NEVER by coordinates or text",
+  );
+  lines.push(
+    "- Include `- waitForAnimationToEnd` after EVERY navigation action",
+  );
+  lines.push("- Start each flow with `- clearState` for isolation");
+  lines.push("- Use `- assertVisible:` with `id:` for verifications");
+  lines.push("- Each flow file should be named `flow-{workflowId}.yaml`");
+  lines.push("");
+  lines.push(safetyPrompt);
+
+  return lines.join("\n");
+}
+
+/**
+ * Flutter-specific UAT runner.
+ *
+ * Orchestrates the full Flutter UAT lifecycle:
+ * 1. Read requirements
+ * 2. Extract workflows
+ * 3. Start emulator (via withEmulator)
+ * 4. Start Flutter app (via withFlutterRun)
+ * 5. Generate Maestro flows (via agent step)
+ * 6. Execute Maestro tests
+ * 7. Gap closure loop on failures
+ * 8. Guaranteed cleanup of flutter run and emulator
+ *
+ * Requirements: MAE-01, MAE-02, MAE-03, MAE-04, MAE-05, MAE-06, MAE-07
+ *
+ * @param ctx - UAT context with all dependencies
+ * @returns Aggregate UAT result
+ */
+export async function runFlutterUAT(ctx: UATContext): Promise<UATResult> {
+  const fs = ctx.fs ?? nodeFs;
+  const { config, stateManager, stepRunnerContext, costController } = ctx;
+  const executeStep = ctx.runStepFn ?? defaultRunStep;
+
+  // 1. Read requirements for workflow extraction
+  let requirementsContent: string;
+  try {
+    requirementsContent = fs.readFileSync("REQUIREMENTS.md", "utf-8");
+  } catch {
+    return {
+      status: "stuck",
+      workflowsTested: 0,
+      workflowsPassed: 0,
+      workflowsFailed: 0,
+      results: [],
+      attemptsUsed: 1,
+    };
+  }
+
+  // 2. Extract workflows
+  const appType = "flutter" as const;
+  const workflows = extractUserWorkflows(requirementsContent, appType);
+  if (workflows.length === 0) {
+    return {
+      status: "passed",
+      workflowsTested: 0,
+      workflowsPassed: 0,
+      workflowsFailed: 0,
+      results: [],
+      attemptsUsed: 1,
+    };
+  }
+
+  // 3. Build safety prompt with mobile guardrails
+  const safetyConfig: SafetyConfig = {
+    useSandboxCredentials: true,
+    useLocalSmtp: false,
+    useTestDb: false,
+    envFile: ".env.test",
+  };
+  const safetyPrompt = buildSafetyPrompt(safetyConfig, appType);
+
+  const avdName = config.testing.flutterAvdName || "Pixel_6_API_33";
+  const flowsDir = config.testing.maestroFlowsDir || ".maestro";
+  const maxRetries = config.maxRetries;
+
+  // 4. Run inside emulator + flutter run lifecycle with guaranteed cleanup
+  const emulatorOptions: EmulatorStartOptions = { avdName };
+
+  try {
+    const uatResult = await withEmulator(
+      emulatorOptions,
+      async (emulatorHandle) => {
+        return await withFlutterRun(
+          { serial: emulatorHandle.serial },
+          async () => {
+            // 5. Generate Maestro flows via agent step
+            const flowGenPrompt = buildFlutterFlowGenPrompt(
+              workflows,
+              safetyPrompt,
+              flowsDir,
+            );
+            await executeStep(
+              "generate-maestro-flows",
+              { prompt: flowGenPrompt, verify: async () => true },
+              stepRunnerContext,
+              costController,
+            );
+
+            // 6. Execute Maestro test with retry loop
+            let attempt = 1;
+            let allResults: WorkflowResult[] = [];
+
+            while (attempt <= maxRetries + 1) {
+              const maestroResult = await executeMaestroUAT(
+                { flowsDir, serial: emulatorHandle.serial },
+                fs as {
+                  readFileSync: (p: string, enc: string) => string;
+                  existsSync: (p: string) => boolean;
+                },
+              );
+              const currentResults =
+                maestroResultToWorkflowResults(maestroResult);
+
+              // Merge results
+              for (const cr of currentResults) {
+                const idx = allResults.findIndex(
+                  (r) => r.workflowId === cr.workflowId,
+                );
+                if (idx >= 0) {
+                  allResults[idx] = cr;
+                } else {
+                  allResults.push(cr);
+                }
+              }
+
+              const failed = currentResults.filter((r) => !r.passed);
+              if (failed.length === 0) break;
+              if (attempt >= maxRetries + 1) break;
+
+              // Gap closure for failed flows
+              await runUATGapClosure(failed, ctx);
+              attempt++;
+            }
+
+            // 7. Aggregate results
+            const passedCount = allResults.filter((r) => r.passed).length;
+            const failedCount = allResults.filter((r) => !r.passed).length;
+
+            let status: UATResult["status"];
+            if (failedCount === 0) {
+              status = "passed";
+            } else if (attempt > maxRetries) {
+              status = "stuck";
+            } else {
+              status = "failed";
+            }
+
+            return {
+              status,
+              workflowsTested: allResults.length,
+              workflowsPassed: passedCount,
+              workflowsFailed: failedCount,
+              results: allResults,
+              attemptsUsed: attempt,
+            } as UATResult;
+          },
+        );
+      },
+    );
+
+    // Update state with UAT results
+    try {
+      await stateManager.update((state) => ({
+        ...state,
+        uatResults: {
+          status:
+            uatResult.status === "stuck" ? "failed" : uatResult.status,
+          workflowsTested: uatResult.workflowsTested,
+          workflowsPassed: uatResult.workflowsPassed,
+          workflowsFailed: uatResult.workflowsFailed,
+        },
+      }));
+    } catch {
+      // State update failures are non-critical
+    }
+
+    return uatResult;
+  } catch (err) {
+    // Re-throw budget errors
+    if (err instanceof BudgetExceededError) {
+      throw err;
+    }
+
+    // Other errors (emulator failure, flutter run failure) → stuck
+    return {
+      status: "stuck",
+      workflowsTested: 0,
+      workflowsPassed: 0,
+      workflowsFailed: 0,
+      results: [],
+      attemptsUsed: 1,
+    };
+  }
 }
