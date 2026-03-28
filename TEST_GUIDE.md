@@ -150,7 +150,10 @@ npx vitest run
 | MAE-04: PID-based teardown in finally | `TestFlutterRun_StopSendsSigterm`, `TestFlutterRun_StopNeverThrows`, `TestFlutterRun_WithFlutterRunCleansUpOnSuccess`, `TestFlutterRun_WithFlutterRunCleansUpOnFailure`, `TestFlutterRun_WithFlutterRunPropagatesCallbackError` | `TestFlutterUAT_CleansUpOnMaestroFailure`, `TestFlutterUAT_BudgetExceededPropagates` | `TestMaestroUAT_EmulatorFailureIsNonFatal` | **Covered** |
 | MAE-05: semantic identifier guidance | — | `TestUATPrompt_FlutterIncludesSemanticGuidance`, `TestMaestroContext_IncludesWidgetKeyGuidance` | `TestMaestroUAT_FlutterDetectionAndPromptGeneration` | **Covered** |
 | MAE-06: gap closure integration | `TestMaestro_ConvertPassingResults`, `TestMaestro_ConvertFailedResults`, `TestMaestro_ConvertEmptyResults` | `TestFlutterUAT_GapClosureOnFailure`, `TestFlutterUAT_RetriesUpToMaxRetries` | `TestMaestroUAT_GapClosureFixesFailures` | **Covered** |
-| MAE-07: waitForAnimationToEnd in flows | — | `TestUATPrompt_FlutterIncludesSemanticGuidance` | `TestMaestroUAT_FlutterDetectionAndPromptGeneration` | **Covered** |
+| MAE-07: waitForAnimationToEnd in flows | -- | `TestUATPrompt_FlutterIncludesSemanticGuidance` | `TestMaestroUAT_FlutterDetectionAndPromptGeneration` | **Covered** |
+| IOS-01: Boot iOS Simulator via xcrun simctl | `TestBootSimulator_Success`, `TestWaitForReady_ImmediatelyBooted`, `TestWaitForReady_BootsAfterPolling`, `TestWaitForReady_Timeout`, `TestShutdown_Success`, `TestWithSimulator_FullLifecycle`, `TestXcodeCheck_Available`, `TestXcodeCheck_NotAvailable`, `TestListSimulators_ParsesJsonOutput`, `TestFindSimulator_AutoSelectNewestIPhone`, `TestFindSimulator_PreferredDeviceMatch` | `TestIosSimulator_StateTrackingRoundtrip`, `TestIosSimulator_SimulatorDeviceAutoDetect`, `TestIosSimulator_SimulatorDeviceFromConfig` | `TestFulliOSUATFlow_SimulatorBootToMaestroTest`, `TestFulliOSUATFlow_SimulatorCleanupOnFailure` | **Covered** |
+| IOS-02: Flutter iOS build --no-codesign | `TestFlutterBuildIos_PassesWithArtifact`, `TestFlutterBuildIos_SkipsWhenNoPubspec`, `TestFlutterBuildIos_SkipsOnNonMacOS`, `TestFlutterBuildIos_UsesNoCodesign`, `TestFlutterBuildIos_UsesSimulatorFlag`, `TestFlutterBuildIos_FailsOnBuildError` | `TestIosBuildVerifier_NoCodesignFlag` | -- | **Covered** |
+| IOS-03: Maestro flows on iOS Simulator | -- | `TestIosSimulator_ConfigDrivenPlatformSelection`, `TestIosSimulator_DefaultsToAndroid` | `TestFulliOSUATFlow_SimulatorBootToMaestroTest`, `TestiOSUATFlow_SameFlowsAsBothPlatforms` | **Covered** |
 
 ## Phase Coverage Log
 
@@ -276,3 +279,20 @@ Requirements covered: EMU-01, EMU-02, EMU-03, EMU-04, EMU-05, EMU-06 (all 6/6)
 | **Total** | **49** | **49** | **0** |
 
 Requirements covered: MAE-01, MAE-02, MAE-03, MAE-04, MAE-05, MAE-06, MAE-07 (all 7/7)
+
+### Phase 12: iOS Simulator Support (2026-03-28)
+
+| Tier | Tests | Passed | Failed |
+|---|---|---|---|
+| Unit | 34 | 34 | 0 |
+| Integration | 7 | 7 | 0 |
+| Scenario | 3 | 3 | 0 |
+| **Total** | **44** | **44** | **0** |
+
+Requirements covered: IOS-01, IOS-02, IOS-03 (all 3/3)
+
+**New test files:**
+- `src/uat/ios-simulator.test.ts` — 25 tests (IOS-01)
+- `src/verifiers/flutter-build-ios.test.ts` — 9 tests (IOS-02)
+- `test/integration/ios-simulator-integration.test.ts` — 7 tests (IOS-01, IOS-02, IOS-03)
+- `test/scenarios/ios-uat-scenario.test.ts` — 3 tests (IOS-03)
