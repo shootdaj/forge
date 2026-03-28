@@ -79,7 +79,7 @@
   1. Forge can boot an iOS Simulator via `xcrun simctl` and detect when it is ready to accept app installs
   2. Flutter iOS builds run with `--no-codesign` — no Apple Developer account or provisioning profile is required
   3. The same Maestro flows used for Android run successfully against the iOS Simulator
-**Plans**: TBD
+**Plans**: 2/2
 **UI hint**: no
 
 ## Progress
@@ -97,4 +97,4 @@
 | 9. Flutter Verifier Infrastructure | v1.1 | 3/3 | Complete | 2026-03-28 |
 | 10. Android Emulator Lifecycle | v1.1 | 2/2 | Complete | 2026-03-28 |
 | 11. Maestro UAT Integration | v1.1 | 3/3 | Complete | 2026-03-28 |
-| 12. iOS Simulator Support | v1.1 | 0/? | Not started | - |
+| 12. iOS Simulator Support | v1.1 | 0/2 | In progress | - |
