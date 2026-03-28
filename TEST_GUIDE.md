@@ -140,6 +140,18 @@ npx vitest run
 | EMU-05: state persistence | `TestForgeStateSchema_EmulatorDefaults`, `TestForgeStateSchema_EmulatorWithValues`, `TestForgeStateSchema_EmulatorRoundTrip`, `TestForgeStateSchema_EmulatorPartialValues`, `TestPersistEmulatorState_WritesToStateManager`, `TestClearEmulatorState_ResetsToDefaults` | `TestEmulatorIntegration_StatePersistence_RoundTrip` | `TestScenario_EmulatorLifecycle_CrashRecovery` | **Covered** |
 | EMU-06: KVM pre-flight check | `TestCheckKvmAvailability_MacOS_AlwaysAvailable`, `TestCheckKvmAvailability_Linux_KvmExists_Available`, `TestCheckKvmAvailability_Linux_KvmMissing_Unavailable`, `TestCheckKvmAvailability_Linux_KvmNotAccessible_Unavailable`, `TestCheckKvmAvailability_Windows_Unsupported`, `TestAssertKvmAvailable_Available_NoThrow`, `TestAssertKvmAvailable_Unavailable_ThrowsKvmUnavailableError`, `TestAssertKvmAvailable_ErrorMessage_Actionable` | `TestEmulatorIntegration_KvmCheckGatesStart` | `TestScenario_EmulatorLifecycle_KvmUnavailable` | **Covered** |
 
+### Maestro UAT (Phase 11)
+
+| Requirement | Unit Tests | Integration Tests | Scenario Tests | Status |
+|---|---|---|---|---|
+| MAE-01: maestro test execution + JUnit parse | `TestMaestro_RunConstructsCorrectCommand`, `TestMaestro_RunWithSerial`, `TestMaestro_RunReturnsExitCodeZero`, `TestMaestro_RunReturnsExitCodeOnFailure`, `TestMaestro_RunWithCustomOutputPath`, `TestMaestro_ParseValidJUnit_AllPass`, `TestMaestro_ParseWithFailures`, `TestMaestro_ParseExtractsErrorMessages`, `TestMaestro_ParseEmptyTestsuite`, `TestMaestro_ExecuteEndToEnd`, `TestMaestro_ExecuteMissingReport` | `TestFlutterUAT_OrchestratesEmulatorAndFlutterRun` | `TestMaestroUAT_FullPassingFlow` | **Covered** |
+| MAE-02: defense-in-depth (exit code + XML) | `TestMaestro_ReconcileExitZeroXmlPass`, `TestMaestro_ReconcileExitZeroXmlFail`, `TestMaestro_ReconcileExitOneXmlPass`, `TestMaestro_ReconcileExitOneXmlFail`, `TestMaestro_ExecuteWithExitCodeOneButPassingXml` | — | `TestMaestroUAT_DefenseInDepthTrustsXmlOverExitCode` | **Covered** |
+| MAE-03: flutter run daemon with ready signal | `TestFlutterRun_StartSpawnsWithCorrectArgs`, `TestFlutterRun_StartCapturesPid`, `TestFlutterRun_StartWithProjectDir`, `TestFlutterRun_StartCallsUnref`, `TestFlutterRun_ReadySignalDetected`, `TestFlutterRun_ReadyCaseInsensitive`, `TestFlutterRun_ReadyTimeoutThrows`, `TestFlutterRun_ProcessExitBeforeReady`, `TestFlutterRun_ReadySignalInChunkedOutput` | `TestFlutterUAT_OrchestratesEmulatorAndFlutterRun` | `TestMaestroUAT_FullPassingFlow` | **Covered** |
+| MAE-04: PID-based teardown in finally | `TestFlutterRun_StopSendsSigterm`, `TestFlutterRun_StopNeverThrows`, `TestFlutterRun_WithFlutterRunCleansUpOnSuccess`, `TestFlutterRun_WithFlutterRunCleansUpOnFailure`, `TestFlutterRun_WithFlutterRunPropagatesCallbackError` | `TestFlutterUAT_CleansUpOnMaestroFailure`, `TestFlutterUAT_BudgetExceededPropagates` | `TestMaestroUAT_EmulatorFailureIsNonFatal` | **Covered** |
+| MAE-05: semantic identifier guidance | — | `TestUATPrompt_FlutterIncludesSemanticGuidance`, `TestMaestroContext_IncludesWidgetKeyGuidance` | `TestMaestroUAT_FlutterDetectionAndPromptGeneration` | **Covered** |
+| MAE-06: gap closure integration | `TestMaestro_ConvertPassingResults`, `TestMaestro_ConvertFailedResults`, `TestMaestro_ConvertEmptyResults` | `TestFlutterUAT_GapClosureOnFailure`, `TestFlutterUAT_RetriesUpToMaxRetries` | `TestMaestroUAT_GapClosureFixesFailures` | **Covered** |
+| MAE-07: waitForAnimationToEnd in flows | — | `TestUATPrompt_FlutterIncludesSemanticGuidance` | `TestMaestroUAT_FlutterDetectionAndPromptGeneration` | **Covered** |
+
 ## Phase Coverage Log
 
 <!-- Appended after each /ax:phase run -->
@@ -253,3 +265,14 @@ Requirements covered: DET-01, DET-02, FV-01, FV-02, FV-03, FV-04, FV-05, FV-06, 
 | **Total** | **57** | **57** | **0** |
 
 Requirements covered: EMU-01, EMU-02, EMU-03, EMU-04, EMU-05, EMU-06 (all 6/6)
+
+### Phase 11: Maestro UAT Integration (2026-03-28)
+
+| Tier | Tests | Passed | Failed |
+|---|---|---|---|
+| Unit | 35 | 35 | 0 |
+| Integration | 9 | 9 | 0 |
+| Scenario | 5 | 5 | 0 |
+| **Total** | **49** | **49** | **0** |
+
+Requirements covered: MAE-01, MAE-02, MAE-03, MAE-04, MAE-05, MAE-06, MAE-07 (all 7/7)
