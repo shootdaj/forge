@@ -133,6 +133,12 @@ npx vitest run
 | CFG-05: mobile verification toggles | `TestConfigSchema_FlutterFields_DefaultValues`, `TestConfigSchema_FlutterFields_CustomValues` | `TestEnabledVerifiers_ExcludesFlutterVerifiers_ByDefault`, `TestEnabledVerifiers_IncludesFlutterBuild_WhenMobileBuildEnabled` | `TestFlutterDetectionScenario_ConfigBackwardCompatible` | **Covered** |
 | SAF-01: mobile safety guardrails | `TestMobileSafetyBlock_IncludesPermissionRestrictions`, `TestMobileSafetyBlock_IncludesFirebaseSandbox`, `TestMobileSafetyBlock_IncludesSigningSafety`, `TestMobileSafetyBlock_IncludesNetworkSafety`, `TestBuildSafetyPrompt_IncludesMobileBlock_ForFlutter` | `TestFlutterVerifierIntegration_RegistryContainsAll` | `TestFlutterDetectionScenario_SafetyGuardrailsComprehensive` | **Covered** |
 | SAF-02: mobile deployment-awareness | `TestPrompts_MobileContext_IncludesSigningConfig`, `TestPrompts_MobileContext_IncludesBundleId`, `TestPrompts_MobileContext_IncludesSemanticIdentifiers`, `TestPrompts_MobileContext_IncludesPlatformBuilds`, `TestPrompts_MobileContext_IncludesPlatformConstraints` | `TestFlutterVerifierIntegration_RegistryContainsAll` | `TestFlutterDetectionScenario_MobileContextPrompt` | **Covered** |
+| EMU-01: headless emulator start | `TestStartEmulator_SpawnsWithCorrectArgs`, `TestStartEmulator_ReturnsPidAndSerial`, `TestStartEmulator_CallsKvmCheck`, `TestStartEmulator_DiscoversNewSerial` | `TestEmulatorIntegration_WithEmulator_FullLifecycle` | `TestScenario_EmulatorLifecycle_HappyPath` | **Covered** |
+| EMU-02: boot readiness polling | `TestWaitForBoot_CompletesOnBootCompleted1`, `TestWaitForBoot_PollsUntilReady`, `TestWaitForBoot_TimeoutThrowsEmulatorBootTimeoutError`, `TestWaitForBoot_HandlesAdbErrors` | `TestEmulatorIntegration_BootTimeout_TriggersCleanup` | `TestScenario_EmulatorLifecycle_BootTimeout` | **Covered** |
+| EMU-03: guaranteed teardown | `TestStopEmulator_CallsAdbEmuKill`, `TestStopEmulator_NeverThrows`, `TestStopEmulator_FallsBackToSigkill`, `TestWithEmulator_CleansUpOnSuccess`, `TestWithEmulator_CleansUpOnError`, `TestRegisterCleanupHandler_RegistersAndDeregisters` | `TestEmulatorIntegration_CleanupHandler_RegisterAndDeregister`, `TestEmulatorIntegration_WithEmulator_FullLifecycle` | `TestScenario_EmulatorLifecycle_HappyPath`, `TestScenario_EmulatorLifecycle_CallbackError` | **Covered** |
+| EMU-04: orphan detection/cleanup | `TestKillOrphanEmulators_NoRunning_ReturnsEmpty`, `TestKillOrphanEmulators_KillsTrackedOrphan`, `TestKillOrphanEmulators_KillsUntrackedOrphans`, `TestKillOrphanEmulators_ClearsState`, `TestKillOrphanEmulators_NeverThrows` | `TestEmulatorIntegration_OrphanCleanup_WithStateManager`, `TestEmulatorIntegration_OrphanCleanup_NoState_KillsAll` | `TestScenario_EmulatorLifecycle_CrashRecovery` | **Covered** |
+| EMU-05: state persistence | `TestForgeStateSchema_EmulatorDefaults`, `TestForgeStateSchema_EmulatorWithValues`, `TestForgeStateSchema_EmulatorRoundTrip`, `TestForgeStateSchema_EmulatorPartialValues`, `TestPersistEmulatorState_WritesToStateManager`, `TestClearEmulatorState_ResetsToDefaults` | `TestEmulatorIntegration_StatePersistence_RoundTrip` | `TestScenario_EmulatorLifecycle_CrashRecovery` | **Covered** |
+| EMU-06: KVM pre-flight check | `TestCheckKvmAvailability_MacOS_AlwaysAvailable`, `TestCheckKvmAvailability_Linux_KvmExists_Available`, `TestCheckKvmAvailability_Linux_KvmMissing_Unavailable`, `TestCheckKvmAvailability_Linux_KvmNotAccessible_Unavailable`, `TestCheckKvmAvailability_Windows_Unsupported`, `TestAssertKvmAvailable_Available_NoThrow`, `TestAssertKvmAvailable_Unavailable_ThrowsKvmUnavailableError`, `TestAssertKvmAvailable_ErrorMessage_Actionable` | `TestEmulatorIntegration_KvmCheckGatesStart` | `TestScenario_EmulatorLifecycle_KvmUnavailable` | **Covered** |
 
 ## Phase Coverage Log
 
@@ -236,3 +242,14 @@ Requirements covered: REQ-01, REQ-02, REQ-03, REQ-04, DOC-01, DOC-02, DOC-03, DO
 | **Total** | **80** | **80** | **0** |
 
 Requirements covered: DET-01, DET-02, FV-01, FV-02, FV-03, FV-04, FV-05, FV-06, CFG-04, CFG-05, SAF-01, SAF-02 (all 12/12)
+
+### Phase 10: Android Emulator Lifecycle (2026-03-28)
+
+| Tier | Tests | Passed | Failed |
+|---|---|---|---|
+| Unit | 45 | 45 | 0 |
+| Integration | 7 | 7 | 0 |
+| Scenario | 5 | 5 | 0 |
+| **Total** | **57** | **57** | **0** |
+
+Requirements covered: EMU-01, EMU-02, EMU-03, EMU-04, EMU-05, EMU-06 (all 6/6)
