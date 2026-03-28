@@ -137,6 +137,10 @@ export function createInitialState(
       serial: "",
       avdName: "",
     },
+    simulator: {
+      udid: "",
+      name: "",
+    },
     totalBudgetUsed: 0,
   };
 }
