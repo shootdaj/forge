@@ -50,9 +50,9 @@
 
 ### iOS Simulator
 
-- [ ] **IOS-01**: System can boot iOS Simulator via xcrun simctl and detect readiness
-- [ ] **IOS-02**: Flutter build for iOS uses --no-codesign flag (no Apple Developer account needed for Simulator)
-- [ ] **IOS-03**: Maestro flows run against iOS Simulator as alternative to Android emulator
+- [x] **IOS-01**: System can boot iOS Simulator via xcrun simctl and detect readiness
+- [x] **IOS-02**: Flutter build for iOS uses --no-codesign flag (no Apple Developer account needed for Simulator)
+- [x] **IOS-03**: Maestro flows run against iOS Simulator as alternative to Android emulator
 
 ## Future Requirements (v2+)
 
@@ -101,9 +101,9 @@
 | MAE-05 | Phase 11 | Pending |
 | MAE-06 | Phase 11 | Pending |
 | MAE-07 | Phase 11 | Pending |
-| IOS-01 | Phase 12 | Pending |
-| IOS-02 | Phase 12 | Pending |
-| IOS-03 | Phase 12 | Pending |
+| IOS-01 | Phase 12 | Done |
+| IOS-02 | Phase 12 | Done |
+| IOS-03 | Phase 12 | Done |
 
 **Coverage:**
 - v1.1 requirements: 28 total
