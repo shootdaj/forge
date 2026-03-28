@@ -76,39 +76,40 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DET-01 | — | Pending |
-| DET-02 | — | Pending |
-| FV-01 | — | Pending |
-| FV-02 | — | Pending |
-| FV-03 | — | Pending |
-| FV-04 | — | Pending |
-| FV-05 | — | Pending |
-| FV-06 | — | Pending |
-| CFG-04 | — | Pending |
-| CFG-05 | — | Pending |
-| EMU-01 | — | Pending |
-| EMU-02 | — | Pending |
-| EMU-03 | — | Pending |
-| EMU-04 | — | Pending |
-| EMU-05 | — | Pending |
-| EMU-06 | — | Pending |
-| MAE-01 | — | Pending |
-| MAE-02 | — | Pending |
-| MAE-03 | — | Pending |
-| MAE-04 | — | Pending |
-| MAE-05 | — | Pending |
-| MAE-06 | — | Pending |
-| MAE-07 | — | Pending |
-| SAF-01 | — | Pending |
-| SAF-02 | — | Pending |
-| IOS-01 | — | Pending |
-| IOS-02 | — | Pending |
-| IOS-03 | — | Pending |
+| DET-01 | Phase 9 | Pending |
+| DET-02 | Phase 9 | Pending |
+| FV-01 | Phase 9 | Pending |
+| FV-02 | Phase 9 | Pending |
+| FV-03 | Phase 9 | Pending |
+| FV-04 | Phase 9 | Pending |
+| FV-05 | Phase 9 | Pending |
+| FV-06 | Phase 9 | Pending |
+| CFG-04 | Phase 9 | Pending |
+| CFG-05 | Phase 9 | Pending |
+| SAF-01 | Phase 9 | Pending |
+| SAF-02 | Phase 9 | Pending |
+| EMU-01 | Phase 10 | Pending |
+| EMU-02 | Phase 10 | Pending |
+| EMU-03 | Phase 10 | Pending |
+| EMU-04 | Phase 10 | Pending |
+| EMU-05 | Phase 10 | Pending |
+| EMU-06 | Phase 10 | Pending |
+| MAE-01 | Phase 11 | Pending |
+| MAE-02 | Phase 11 | Pending |
+| MAE-03 | Phase 11 | Pending |
+| MAE-04 | Phase 11 | Pending |
+| MAE-05 | Phase 11 | Pending |
+| MAE-06 | Phase 11 | Pending |
+| MAE-07 | Phase 11 | Pending |
+| IOS-01 | Phase 12 | Pending |
+| IOS-02 | Phase 12 | Pending |
+| IOS-03 | Phase 12 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 28 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 28
+- Mapped to phases: 28
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-28*
+*Traceability updated: 2026-03-28*
