@@ -86,6 +86,34 @@ export {
   withFlutterRun,
 } from "./flutter-run.js";
 
+// iOS Simulator types and errors
+export type {
+  SimulatorDevice,
+  SimulatorHandle,
+  SimulatorBootOptions,
+  SimulatorWaitOptions,
+} from "./ios-simulator-types.js";
+export {
+  SimulatorError,
+  SimulatorBootTimeoutError,
+  SimulatorNotFoundError,
+  XcodeNotAvailableError,
+} from "./ios-simulator-types.js";
+
+// iOS Simulator lifecycle
+export {
+  assertXcodeAvailable,
+  listAvailableSimulators,
+  findBestSimulator,
+  bootSimulator,
+  waitForSimulatorReady,
+  shutdownSimulator,
+  registerSimulatorCleanup,
+  withSimulator,
+  persistSimulatorState,
+  clearSimulatorState,
+} from "./ios-simulator.js";
+
 // Maestro types and errors
 export type {
   MaestroFlowResult,

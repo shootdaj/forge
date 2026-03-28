@@ -24,9 +24,11 @@ import { extractUserWorkflows, buildSafetyPrompt, runUATGapClosure } from "./wor
 import { runStep as defaultRunStep } from "../step-runner/step-runner.js";
 import { BudgetExceededError } from "../step-runner/types.js";
 import { withEmulator } from "./emulator.js";
+import { withSimulator } from "./ios-simulator.js";
 import { withFlutterRun } from "./flutter-run.js";
 import { executeMaestroUAT, maestroResultToWorkflowResults } from "./maestro.js";
 import type { EmulatorStartOptions } from "./emulator-types.js";
+import type { SimulatorBootOptions } from "./ios-simulator-types.js";
 
 /**
  * Detect the application type from the project configuration.
@@ -672,27 +674,125 @@ function buildFlutterFlowGenPrompt(
 }
 
 /**
- * Flutter-specific UAT runner.
+ * Inner Maestro UAT logic shared between Android and iOS paths.
+ *
+ * Handles: flow generation, Maestro test execution, gap closure loop, result aggregation.
+ * Platform-agnostic — accepts a deviceId that works for both Android serial and iOS UDID.
+ *
+ * Requirements: MAE-01, MAE-02, MAE-05, MAE-06, MAE-07, IOS-03
+ *
+ * @param deviceId - Android emulator serial or iOS Simulator UDID
+ * @param workflows - User workflows to test
+ * @param safetyPrompt - Safety guardrails text
+ * @param flowsDir - Directory for Maestro flow files
+ * @param maxRetries - Maximum retry attempts
+ * @param ctx - UAT context with all dependencies
+ * @returns Aggregate UAT result
+ */
+async function runMaestroUATInner(
+  deviceId: string,
+  workflows: UATWorkflow[],
+  safetyPrompt: string,
+  flowsDir: string,
+  maxRetries: number,
+  ctx: UATContext,
+): Promise<UATResult> {
+  const fs = ctx.fs ?? nodeFs;
+  const { stepRunnerContext, costController } = ctx;
+  const executeStep = ctx.runStepFn ?? defaultRunStep;
+
+  // Generate Maestro flows via agent step
+  const flowGenPrompt = buildFlutterFlowGenPrompt(
+    workflows,
+    safetyPrompt,
+    flowsDir,
+  );
+  await executeStep(
+    "generate-maestro-flows",
+    { prompt: flowGenPrompt, verify: async () => true },
+    stepRunnerContext,
+    costController,
+  );
+
+  // Execute Maestro test with retry loop
+  let attempt = 1;
+  let allResults: WorkflowResult[] = [];
+
+  while (attempt <= maxRetries + 1) {
+    const maestroResult = await executeMaestroUAT(
+      { flowsDir, serial: deviceId },
+      fs as {
+        readFileSync: (p: string, enc: string) => string;
+        existsSync: (p: string) => boolean;
+      },
+    );
+    const currentResults = maestroResultToWorkflowResults(maestroResult);
+
+    // Merge results
+    for (const cr of currentResults) {
+      const idx = allResults.findIndex(
+        (r) => r.workflowId === cr.workflowId,
+      );
+      if (idx >= 0) {
+        allResults[idx] = cr;
+      } else {
+        allResults.push(cr);
+      }
+    }
+
+    const failed = currentResults.filter((r) => !r.passed);
+    if (failed.length === 0) break;
+    if (attempt >= maxRetries + 1) break;
+
+    // Gap closure for failed flows
+    await runUATGapClosure(failed, ctx);
+    attempt++;
+  }
+
+  // Aggregate results
+  const passedCount = allResults.filter((r) => r.passed).length;
+  const failedCount = allResults.filter((r) => !r.passed).length;
+
+  let status: UATResult["status"];
+  if (failedCount === 0) {
+    status = "passed";
+  } else if (attempt > maxRetries) {
+    status = "stuck";
+  } else {
+    status = "failed";
+  }
+
+  return {
+    status,
+    workflowsTested: allResults.length,
+    workflowsPassed: passedCount,
+    workflowsFailed: failedCount,
+    results: allResults,
+    attemptsUsed: attempt,
+  };
+}
+
+/**
+ * Flutter-specific UAT runner with platform routing.
  *
  * Orchestrates the full Flutter UAT lifecycle:
  * 1. Read requirements
  * 2. Extract workflows
- * 3. Start emulator (via withEmulator)
+ * 3. Start device: Android emulator (via withEmulator) OR iOS Simulator (via withSimulator)
  * 4. Start Flutter app (via withFlutterRun)
  * 5. Generate Maestro flows (via agent step)
  * 6. Execute Maestro tests
  * 7. Gap closure loop on failures
- * 8. Guaranteed cleanup of flutter run and emulator
+ * 8. Guaranteed cleanup of flutter run and emulator/simulator
  *
- * Requirements: MAE-01, MAE-02, MAE-03, MAE-04, MAE-05, MAE-06, MAE-07
+ * Requirements: MAE-01, MAE-02, MAE-03, MAE-04, MAE-05, MAE-06, MAE-07, IOS-01, IOS-03
  *
  * @param ctx - UAT context with all dependencies
  * @returns Aggregate UAT result
  */
 export async function runFlutterUAT(ctx: UATContext): Promise<UATResult> {
   const fs = ctx.fs ?? nodeFs;
-  const { config, stateManager, stepRunnerContext, costController } = ctx;
-  const executeStep = ctx.runStepFn ?? defaultRunStep;
+  const { config, stateManager } = ctx;
 
   // 1. Read requirements for workflow extraction
   let requirementsContent: string;
@@ -732,94 +832,63 @@ export async function runFlutterUAT(ctx: UATContext): Promise<UATResult> {
   };
   const safetyPrompt = buildSafetyPrompt(safetyConfig, appType);
 
-  const avdName = config.testing.flutterAvdName || "Pixel_6_API_33";
   const flowsDir = config.testing.maestroFlowsDir || ".maestro";
   const maxRetries = config.maxRetries;
 
-  // 4. Run inside emulator + flutter run lifecycle with guaranteed cleanup
-  const emulatorOptions: EmulatorStartOptions = { avdName };
+  // 4. Determine platform and run inside device lifecycle with guaranteed cleanup
+  const mobilePlatform = config.testing.mobilePlatform || "android";
 
   try {
-    const uatResult = await withEmulator(
-      emulatorOptions,
-      async (emulatorHandle) => {
-        return await withFlutterRun(
-          { serial: emulatorHandle.serial },
-          async () => {
-            // 5. Generate Maestro flows via agent step
-            const flowGenPrompt = buildFlutterFlowGenPrompt(
-              workflows,
-              safetyPrompt,
-              flowsDir,
-            );
-            await executeStep(
-              "generate-maestro-flows",
-              { prompt: flowGenPrompt, verify: async () => true },
-              stepRunnerContext,
-              costController,
-            );
+    let uatResult: UATResult;
 
-            // 6. Execute Maestro test with retry loop
-            let attempt = 1;
-            let allResults: WorkflowResult[] = [];
+    if (mobilePlatform === "ios") {
+      // iOS Simulator path (IOS-01, IOS-03)
+      const simulatorOptions: SimulatorBootOptions = {
+        deviceName: config.testing.iosSimulatorDevice || undefined,
+      };
 
-            while (attempt <= maxRetries + 1) {
-              const maestroResult = await executeMaestroUAT(
-                { flowsDir, serial: emulatorHandle.serial },
-                fs as {
-                  readFileSync: (p: string, enc: string) => string;
-                  existsSync: (p: string) => boolean;
-                },
+      uatResult = await withSimulator(
+        simulatorOptions,
+        async (simulatorHandle) => {
+          return await withFlutterRun(
+            { serial: simulatorHandle.udid },
+            async () => {
+              return await runMaestroUATInner(
+                simulatorHandle.udid,
+                workflows,
+                safetyPrompt,
+                flowsDir,
+                maxRetries,
+                ctx,
               );
-              const currentResults =
-                maestroResultToWorkflowResults(maestroResult);
+            },
+          );
+        },
+      );
+    } else {
+      // Android emulator path (default)
+      const avdName = config.testing.flutterAvdName || "Pixel_6_API_33";
+      const emulatorOptions: EmulatorStartOptions = { avdName };
 
-              // Merge results
-              for (const cr of currentResults) {
-                const idx = allResults.findIndex(
-                  (r) => r.workflowId === cr.workflowId,
-                );
-                if (idx >= 0) {
-                  allResults[idx] = cr;
-                } else {
-                  allResults.push(cr);
-                }
-              }
-
-              const failed = currentResults.filter((r) => !r.passed);
-              if (failed.length === 0) break;
-              if (attempt >= maxRetries + 1) break;
-
-              // Gap closure for failed flows
-              await runUATGapClosure(failed, ctx);
-              attempt++;
-            }
-
-            // 7. Aggregate results
-            const passedCount = allResults.filter((r) => r.passed).length;
-            const failedCount = allResults.filter((r) => !r.passed).length;
-
-            let status: UATResult["status"];
-            if (failedCount === 0) {
-              status = "passed";
-            } else if (attempt > maxRetries) {
-              status = "stuck";
-            } else {
-              status = "failed";
-            }
-
-            return {
-              status,
-              workflowsTested: allResults.length,
-              workflowsPassed: passedCount,
-              workflowsFailed: failedCount,
-              results: allResults,
-              attemptsUsed: attempt,
-            } as UATResult;
-          },
-        );
-      },
-    );
+      uatResult = await withEmulator(
+        emulatorOptions,
+        async (emulatorHandle) => {
+          return await withFlutterRun(
+            { serial: emulatorHandle.serial },
+            async () => {
+              return await runMaestroUATInner(
+                emulatorHandle.serial,
+                workflows,
+                safetyPrompt,
+                flowsDir,
+                maxRetries,
+                ctx,
+              );
+            },
+          );
+        },
+      );
+    }
 
     // Update state with UAT results
     try {
@@ -844,7 +913,7 @@ export async function runFlutterUAT(ctx: UATContext): Promise<UATResult> {
       throw err;
     }
 
-    // Other errors (emulator failure, flutter run failure) → stuck
+    // Other errors (emulator/simulator failure, flutter run failure) → stuck
     return {
       status: "stuck",
       workflowsTested: 0,
