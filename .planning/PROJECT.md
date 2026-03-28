@@ -8,6 +8,18 @@ Forge is an autonomous software development orchestrator built on the Claude Age
 
 Every step verified by code, not agent self-report. Forge maximizes autonomous progress — it only stops when it genuinely needs a human.
 
+## Current Milestone: v1.1 Flutter Mobile Support
+
+**Goal:** Forge can build, verify, and UAT Flutter mobile apps end-to-end
+
+**Target features:**
+- App type detection for Flutter projects
+- Flutter-aware programmatic verifiers (build, dart analyze, flutter test, emulator)
+- Mobile UAT via Maestro CLI
+- Mobile app startup (emulator + flutter run)
+- Configurable health check / app-ready detection
+- Mobile safety guardrails and deployment-awareness
+
 ## Current State
 
 **Shipped:** v1.0 MVP (2026-03-08)
@@ -35,7 +47,7 @@ All 90 requirements shipped and validated. See [archived requirements](milestone
 
 ### Active
 
-(None — next milestone not started)
+See [REQUIREMENTS.md](REQUIREMENTS.md) for v1.1 requirements.
 
 ### Out of Scope
 
@@ -47,7 +59,7 @@ All 90 requirements shipped and validated. See [archived requirements](milestone
 - Live dashboard — v2
 - Deployment automation (push to prod) — v2
 - Learning across projects — v2
-- Mobile app UAT (React Native/Flutter emulators) — v2
+- React Native support — v1.2 (Flutter first in v1.1)
 
 ## Context
 
@@ -82,4 +94,22 @@ All 90 requirements shipped and validated. See [archived requirements](milestone
 | Raw async iterator over for-await on SDK stream | for-await blocks on iterator.return() at child process exit | Validated — manual next() with Promise.race timeout |
 
 ---
-*Last updated: 2026-03-10 after v1.0 milestone completion*
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `/gsd:transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `/gsd:complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
+
+---
+*Last updated: 2026-03-12 after v1.1 milestone start*
