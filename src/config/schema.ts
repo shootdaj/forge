@@ -24,6 +24,8 @@ const TestingConfigSchema = z.object({
   flutter_avd_name: z.string().default(""),
   flutter_build_flavor: z.string().default(""),
   maestro_flows_dir: z.string().default(".maestro"),
+  mobile_platform: z.enum(["android", "ios"]).default("android"),
+  ios_simulator_device: z.string().default(""),
 });
 
 /**
@@ -151,6 +153,8 @@ export interface ForgeConfig {
     flutterAvdName: string;
     flutterBuildFlavor: string;
     maestroFlowsDir: string;
+    mobilePlatform: "android" | "ios";
+    iosSimulatorDevice: string;
   };
   verification: {
     files: boolean;

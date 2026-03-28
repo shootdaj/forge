@@ -111,6 +111,17 @@ const EmulatorStateSchema = z.object({
 });
 
 /**
+ * iOS Simulator tracking for crash recovery.
+ *
+ * Requirement: IOS-01
+ */
+const SimulatorStateSchema = z.object({
+  udid: z.string().default(""),
+  name: z.string().default(""),
+  started_at: z.string().optional(),
+});
+
+/**
  * Deployment tracking.
  */
 const DeploymentStateSchema = z.object({
@@ -162,6 +173,7 @@ export const ForgeStateSchema = z.object({
   uat_results: z.any().default({}).pipe(UatResultsSchema),
   deployment: z.any().default({}).pipe(DeploymentStateSchema),
   emulator: z.any().default({}).pipe(EmulatorStateSchema),
+  simulator: z.any().default({}).pipe(SimulatorStateSchema),
   total_budget_used: z.number().default(0),
 });
 
@@ -277,6 +289,11 @@ export interface ForgeState {
     pid: number;
     serial: string;
     avdName: string;
+    startedAt?: string;
+  };
+  simulator: {
+    udid: string;
+    name: string;
     startedAt?: string;
   };
   totalBudgetUsed: number;
