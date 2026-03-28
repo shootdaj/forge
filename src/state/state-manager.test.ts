@@ -78,6 +78,11 @@ describe("State Manager", () => {
         workflowsPassed: 0,
         workflowsFailed: 0,
       });
+      expect(state.emulator).toEqual({
+        pid: 0,
+        serial: "",
+        avdName: "",
+      });
       expect(state.totalBudgetUsed).toBe(0);
     });
   });
@@ -409,6 +414,84 @@ describe("State Manager", () => {
       expect(loaded.credentials).toEqual({ STRIPE_KEY: "sk_test_123" });
       expect(loaded.humanGuidance).toEqual({ ws: "Use socket.io v4" });
       expect(loaded.remainingGaps).toEqual(["R7", "R12"]);
+    });
+  });
+
+  describe("TestForgeStateSchema_EmulatorDefaults", () => {
+    it("EMU-05: emulator defaults to zeroed values", () => {
+      const state = createInitialState(tempDir);
+      expect(state.emulator).toEqual({
+        pid: 0,
+        serial: "",
+        avdName: "",
+      });
+    });
+  });
+
+  describe("TestForgeStateSchema_EmulatorWithValues", () => {
+    it("EMU-05: emulator state persists PID, serial, AVD name, and startedAt", () => {
+      const state = createInitialState(tempDir);
+      state.emulator = {
+        pid: 1234,
+        serial: "emulator-5554",
+        avdName: "test_avd",
+        startedAt: "2026-03-28T10:00:00.000Z",
+      };
+      stateManager.save(state);
+      const loaded = stateManager.load();
+      expect(loaded.emulator.pid).toBe(1234);
+      expect(loaded.emulator.serial).toBe("emulator-5554");
+      expect(loaded.emulator.avdName).toBe("test_avd");
+      expect(loaded.emulator.startedAt).toBe("2026-03-28T10:00:00.000Z");
+    });
+  });
+
+  describe("TestForgeStateSchema_EmulatorRoundTrip", () => {
+    it("EMU-05: emulator state survives snake_case/camelCase round trip", () => {
+      const state = createInitialState(tempDir);
+      state.emulator = {
+        pid: 9876,
+        serial: "emulator-5556",
+        avdName: "Pixel_6_API_33",
+        startedAt: "2026-03-28T12:00:00.000Z",
+      };
+      stateManager.save(state);
+
+      // Read raw JSON to verify snake_case keys
+      const rawJson = JSON.parse(
+        fs.readFileSync(path.join(tempDir, STATE_FILE_NAME), "utf-8"),
+      );
+      expect(rawJson.emulator.pid).toBe(9876);
+      expect(rawJson.emulator.serial).toBe("emulator-5556");
+      expect(rawJson.emulator.avd_name).toBe("Pixel_6_API_33");
+      expect(rawJson.emulator.started_at).toBe("2026-03-28T12:00:00.000Z");
+
+      // Verify camelCase after load
+      const loaded = stateManager.load();
+      expect(loaded.emulator.avdName).toBe("Pixel_6_API_33");
+    });
+  });
+
+  describe("TestForgeStateSchema_EmulatorPartialValues", () => {
+    it("EMU-05: missing emulator fields get defaults from schema", () => {
+      // Create initial state, save, then manually write partial emulator
+      const state = createInitialState(tempDir);
+      stateManager.save(state);
+
+      // Write raw JSON with only PID set
+      const rawJson = JSON.parse(
+        fs.readFileSync(path.join(tempDir, STATE_FILE_NAME), "utf-8"),
+      );
+      rawJson.emulator = { pid: 5555 };
+      fs.writeFileSync(
+        path.join(tempDir, STATE_FILE_NAME),
+        JSON.stringify(rawJson, null, 2),
+      );
+
+      const loaded = stateManager.load();
+      expect(loaded.emulator.pid).toBe(5555);
+      expect(loaded.emulator.serial).toBe("");
+      expect(loaded.emulator.avdName).toBe("");
     });
   });
 });

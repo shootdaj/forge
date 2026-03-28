@@ -1,9 +1,10 @@
 /**
  * UAT Module Public API
  *
- * Re-exports all types and functions for the UAT runner.
+ * Re-exports all types and functions for the UAT runner,
+ * emulator lifecycle, and KVM pre-flight check.
  *
- * Requirements: UAT-01, UAT-02, UAT-03, UAT-04, UAT-05, UAT-06
+ * Requirements: UAT-01 through UAT-06, EMU-01 through EMU-06
  */
 
 // Types
@@ -15,6 +16,20 @@ export type {
   UATContext,
   SafetyConfig,
 } from "./types.js";
+
+// Emulator types and errors
+export type {
+  EmulatorHandle,
+  EmulatorStartOptions,
+  BootWaitOptions,
+  KvmCheckResult,
+} from "./emulator-types.js";
+export {
+  EmulatorError,
+  EmulatorBootTimeoutError,
+  KvmUnavailableError,
+  EmulatorStartError,
+} from "./emulator-types.js";
 
 // Workflow extraction and gap closure
 export {
@@ -33,3 +48,19 @@ export {
   verifyUATResults,
   runUAT,
 } from "./runner.js";
+
+// Emulator lifecycle
+export {
+  startEmulator,
+  waitForBoot,
+  stopEmulator,
+  withEmulator,
+  registerCleanupHandler,
+  killOrphanEmulators,
+  persistEmulatorState,
+  clearEmulatorState,
+  listEmulatorSerials,
+} from "./emulator.js";
+
+// KVM pre-flight
+export { checkKvmAvailability, assertKvmAvailable } from "./kvm-check.js";
