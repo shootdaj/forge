@@ -99,6 +99,18 @@ const UatResultsSchema = z.object({
 });
 
 /**
+ * Emulator tracking for crash recovery.
+ *
+ * Requirement: EMU-05
+ */
+const EmulatorStateSchema = z.object({
+  pid: z.number().int().default(0),
+  serial: z.string().default(""),
+  avd_name: z.string().default(""),
+  started_at: z.string().optional(),
+});
+
+/**
  * Deployment tracking.
  */
 const DeploymentStateSchema = z.object({
@@ -149,6 +161,7 @@ export const ForgeStateSchema = z.object({
   remaining_gaps: z.array(z.string()).default([]),
   uat_results: z.any().default({}).pipe(UatResultsSchema),
   deployment: z.any().default({}).pipe(DeploymentStateSchema),
+  emulator: z.any().default({}).pipe(EmulatorStateSchema),
   total_budget_used: z.number().default(0),
 });
 
@@ -259,6 +272,12 @@ export interface ForgeState {
     target: string;
     deployedAt?: string;
     attempts: number;
+  };
+  emulator: {
+    pid: number;
+    serial: string;
+    avdName: string;
+    startedAt?: string;
   };
   totalBudgetUsed: number;
 }

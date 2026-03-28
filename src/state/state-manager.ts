@@ -132,6 +132,11 @@ export function createInitialState(
       target: "",
       attempts: 0,
     },
+    emulator: {
+      pid: 0,
+      serial: "",
+      avdName: "",
+    },
     totalBudgetUsed: 0,
   };
 }
