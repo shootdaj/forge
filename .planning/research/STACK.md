@@ -424,3 +424,315 @@ This is simpler, has zero additional dependencies, and is exactly what the spec 
 ---
 *Stack research for: Forge autonomous development orchestrator*
 *Researched: 2026-03-05*
+
+---
+
+# Flutter Mobile Verification — Stack Additions
+
+**Researched:** 2026-03-28
+**Confidence:** HIGH (Maestro version verified via GitHub API; CLI flags verified via official docs; JUnit XML and flutter test --machine format verified from dart-lang/test spec)
+
+This section documents stack additions required for v1.1 Flutter mobile support. The existing stack above remains unchanged.
+
+---
+
+## New npm Dependency
+
+| Library | Version | Purpose | Why |
+|---------|---------|---------|-----|
+| `junit2json` | 3.2.0 | Parse Maestro's JUnit XML report into typed TypeScript objects | Purpose-built for JUnit XML parsing with TypeScript types; ESM + CJS dual output; avoids writing a custom XML parser. Published 3 months ago (as of 2026-03-28), actively maintained |
+
+```bash
+npm install junit2json
+```
+
+**Usage pattern:**
+```typescript
+import { parse } from "junit2json";
+import fs from "node:fs";
+
+const xml = fs.readFileSync("report.xml", "utf8");
+const report = await parse(xml);
+// report.testsuites[0].testsuite[0].testcase[0].failure -> failure message
+const totalFailures = report.testsuites?.reduce(
+  (sum, ts) => sum + (ts.failures ?? 0), 0
+) ?? 0;
+```
+
+---
+
+## External CLI Tools (installed by user, invoked via child_process)
+
+Forge invokes these as subprocesses via `execa`. They are not npm packages. Forge should detect their presence at startup and emit a clear error if missing.
+
+### Maestro CLI — Mobile UAT
+
+**Version:** 2.3.0 (released 2026-03-10, confirmed via GitHub API)
+**GitHub:** https://github.com/mobile-dev-inc/maestro (5.8k stars)
+
+**Install (macOS/Linux):**
+```bash
+# Recommended method (curl — NOT brew)
+curl -Ls "https://get.maestro.mobile.dev" | bash
+
+# Pin version for CI reproducibility
+MAESTRO_VERSION=2.3.0 curl -Ls "https://get.maestro.mobile.dev" | bash
+
+# Verify install
+maestro --version
+```
+
+**CRITICAL:** Do NOT use `brew install maestro` — it installs "Maestro AI" (runmaestro.ai), a completely different product.
+
+**Key CLI commands:**
+```bash
+# Run a single flow file, emit JUnit XML
+maestro test flows/login.yaml --format JUNIT --output report.xml
+
+# Run all flows in a directory
+maestro test .maestro/ --format JUNIT --output report.xml
+
+# With environment variable injection
+maestro test .maestro/ --format JUNIT --output report.xml --env APP_ENV=staging
+
+# Filter by tag (for smoke vs full suite)
+maestro test .maestro/ --format JUNIT --output report.xml --include-tags smoke
+
+# Start Android emulator (Maestro-managed, blocks until ready)
+maestro start-device --platform android --os-version 33
+
+# Start iOS simulator
+maestro start-device --platform ios --os-version 16
+
+# Force-recreate device (CI clean slate)
+maestro start-device --platform android --os-version 33 --force-create
+```
+
+**Exit codes:**
+- `0` — all flows passed
+- Non-zero — one or more flows failed
+
+**JUnit XML output structure (`report.xml`):**
+```xml
+<testsuites>
+  <testsuite name="flows/login.yaml" tests="1" failures="0" errors="0" time="4.2">
+    <testcase name="Login flow" classname="flows/login.yaml" time="4.2"/>
+  </testsuite>
+  <testsuite name="flows/dashboard.yaml" tests="1" failures="1" errors="0" time="2.1">
+    <testcase name="Dashboard flow" classname="flows/dashboard.yaml" time="2.1">
+      <failure message="Element not found: 'Welcome'">stack trace here</failure>
+    </testcase>
+  </testsuite>
+</testsuites>
+```
+
+**`--format` options:** `JUNIT` | `HTML` | `NOOP` (default is NOOP — no report written)
+
+---
+
+### Flutter SDK — Build, Test, Analyze
+
+Invoked as `flutter` and `dart` subprocesses. Assumed installed by the Flutter project being built.
+
+**flutter test (unit/widget tests):**
+```bash
+# JSON/machine-readable output (one NDJSON event per line on stdout)
+flutter test --machine > test-results/flutter.json
+
+# Exit code: 0 = all pass, non-zero = one or more failures
+```
+
+**JSON event stream format** (NDJSON — one object per line, spec at dart-lang/test):
+
+| Event `type` | Key fields | Notes |
+|---|---|---|
+| `start` | `protocolVersion`, `runnerVersion`, `pid` | First event |
+| `allSuites` | `count` | Suite count |
+| `suite` | `suite.id`, `suite.path` | Per-file suite |
+| `testStart` | `test.id`, `test.name` | Per test start |
+| `testDone` | `testID`, `result` (`"success"/"failure"/"error"`), `hidden`, `skipped` | Per test result |
+| `error` | `testID`, `error`, `stackTrace`, `isFailure` | Uncaught error |
+| `done` | `success` (bool, nullable) | Final event — `null` if runner killed early |
+
+**Parsing strategy:**
+```typescript
+// Split stdout by newlines, JSON.parse each non-empty line
+// Terminal condition: find event where type === "done"
+// done.success === true  → all tests passed
+// done.success === false → failures exist
+// done.success === null  → runner was killed (treat as failure)
+// Count testDone events with result !== "success" for failure count
+```
+
+**dart analyze / flutter analyze:**
+```bash
+# Analyze current directory (exit 0 = clean, 1 = issues found, 2 = tool error)
+dart analyze
+
+# Treat warnings as fatal (recommended for Forge verifier)
+dart analyze --fatal-warnings
+
+# Machine-parseable output (pipe-delimited: SEVERITY|MESSAGE|FILE|LINE|COL|LENGTH)
+dart analyze --format machine
+
+# Flutter projects: use flutter analyze (wraps dart analyze with Flutter rules)
+flutter analyze --fatal-warnings
+```
+
+**Exit codes:**
+- `0` — no issues (or only infos/warnings when `--fatal-warnings` not set)
+- `1` — fatal issues found (errors always fatal; warnings fatal with `--fatal-warnings`)
+- `2` — tool error (bad options, pubspec parse failure)
+
+**Parsing strategy:** Check exit code first. If non-zero with `--format machine`, parse stderr lines for `error|...` prefix to extract file/line/message tuples for gap closure reporting.
+
+---
+
+### Android SDK Tools — Emulator Lifecycle
+
+These come bundled with the Android SDK (installed via Android Studio or `sdkmanager`). Paths typically in `$ANDROID_HOME/tools/` and `$ANDROID_HOME/platform-tools/`.
+
+**List available AVDs:**
+```bash
+emulator -list-avds
+# Outputs one AVD name per line, e.g.:
+# Pixel_6_API_33
+# Pixel_7_API_34
+```
+
+**Start emulator (non-blocking, background process):**
+```bash
+# -no-audio: prevents audio device errors in CI/headless environments
+# -no-snapshot-load: forces clean boot (more reliable in CI)
+# -no-window: headless mode for CI (no display required)
+emulator -avd Pixel_6_API_33 -no-audio -no-snapshot-load -no-window &
+EMULATOR_PID=$!
+```
+
+**Boot detection (poll `sys.boot_completed`):**
+```bash
+# adb wait-for-device ensures ADB connection (not full boot)
+adb -s emulator-5554 wait-for-device
+
+# Then poll for full system boot
+adb -s emulator-5554 shell getprop sys.boot_completed
+# Returns "1" when fully booted, "" or "0" while booting
+```
+
+**Node.js polling pattern:**
+```typescript
+import { execa } from "execa";
+
+async function waitForEmulatorBoot(serial: string, timeoutMs = 120_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { stdout } = await execa("adb", ["-s", serial, "shell", "getprop", "sys.boot_completed"], {
+      reject: false
+    });
+    if (stdout.trim() === "1") return;
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  throw new Error(`Emulator ${serial} did not boot within ${timeoutMs}ms`);
+}
+```
+
+**Get serial of running emulator:**
+```bash
+adb devices
+# Output:
+# List of devices attached
+# emulator-5554   device
+# emulator-5556   device
+```
+
+**Kill specific emulator (graceful):**
+```bash
+adb -s emulator-5554 emu kill
+```
+
+**Kill all emulators (CI teardown):**
+```bash
+adb devices | grep emulator | awk '{print $1}' | xargs -I{} adb -s {} emu kill
+```
+
+**Create AVD (for CI setup phase):**
+```bash
+avdmanager create avd \
+  -n Pixel_6_API_33 \
+  -k "system-images;android-33;google_apis;x86_64" \
+  --device "pixel_6" \
+  --force  # overwrite if exists
+```
+
+---
+
+## Alternatives Considered (Flutter-specific)
+
+| Recommended | Alternative | Why Not |
+|-------------|-------------|---------|
+| Maestro CLI | Appium | Requires Appium server daemon, Java/Node setup, WebDriver protocol overhead, no Flutter-specific selectors. Maestro has Flutter semantic tree access |
+| Maestro CLI | Detox | React Native only -- no Flutter support |
+| Maestro CLI | `flutter drive` | Requires writing Dart test code inside the app repo. Maestro runs YAML flows without touching app source |
+| `junit2json` npm | `xml2js` (manual parsing) | `junit2json` has typed output, 12 GitHub stars (small but purpose-built), 3.2.0 maintained. Saves writing custom JUnit XML schema mapping |
+| `flutter test --machine` | `flutter test --reporter json` | `--reporter` is a `dart test` / `pub run test` flag -- NOT available on `flutter test` directly. `--machine` is the correct flag |
+| `adb emu kill` | `pkill emulator` / `kill $PID` | `adb emu kill` sends graceful shutdown via ADB console. Process kill can corrupt AVD state and leave ADB daemon in bad state |
+| `flutter analyze --fatal-warnings` | `dart analyze` | For Flutter projects, `flutter analyze` applies Flutter-specific lint rules on top of Dart analysis. Use `dart analyze` only for pure Dart packages |
+
+---
+
+## What NOT to Use (Flutter-specific)
+
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| `brew install maestro` | Installs Maestro AI (runmaestro.ai) -- completely different product with same name | `curl -Ls "https://get.maestro.mobile.dev" | bash` |
+| `flutter test --reporter json` | Not a valid `flutter test` flag | `flutter test --machine` |
+| Starting emulator without `-no-audio` on CI | Audio device initialization fails on headless Linux CI, causing emulator crash | `emulator -avd NAME -no-audio -no-window` |
+| `adb wait-for-device` alone for boot detection | Returns when ADB connects (early boot), not when system is usable | Follow with `getprop sys.boot_completed` polling loop |
+| `dart analyze` without `--fatal-warnings` on Flutter projects | Warnings (e.g., deprecated APIs, missing null checks) silently pass as exit code 0 | `flutter analyze --fatal-warnings` |
+| Hardcoding emulator serial `emulator-5554` | Serial changes based on port allocation, breaks with multiple emulators | Parse `adb devices` output to get actual serial |
+
+---
+
+## Installation Summary (v1.1 additions)
+
+```bash
+# One new npm runtime dependency
+npm install junit2json
+
+# External tools (user must have installed):
+# - Flutter SDK: https://docs.flutter.dev/get-started/install
+# - Android Studio / Android SDK (includes adb, emulator, avdmanager)
+# - Maestro CLI: curl -Ls "https://get.maestro.mobile.dev" | bash
+```
+
+Forge should detect tool availability at pipeline start and fail fast with actionable error messages if any are missing.
+
+---
+
+## Version Compatibility (Flutter additions)
+
+| Tool | Version | Compatible With | Notes |
+|------|---------|-----------------|-------|
+| Maestro CLI | 2.3.0 | Flutter 3.x, Android API 28-35, iOS 14-17 | Verified via GitHub API (2026-03-10 release) |
+| `junit2json` | 3.2.0 | Node.js >=18, TypeScript 5.x | ESM + CJS exports, typed output |
+| `flutter test --machine` | Flutter 2.x+ | All supported Dart/Flutter versions | `--machine` flag stable; `done.success` field reliable |
+| `dart analyze --format machine` | Dart 2.12+ | All Flutter 2.x+ versions | `--format machine` available since null-safety era |
+| `adb sys.boot_completed` | Android API 21+ | All modern AVDs | Property present on all API levels Forge would target |
+
+---
+
+## Sources (Flutter additions)
+
+- GitHub API (`/repos/mobile-dev-inc/maestro/releases/latest`) — Maestro version `cli-2.3.0`, published 2026-03-10 (HIGH confidence)
+- [Maestro CLI commands reference](https://docs.maestro.dev/maestro-cli/maestro-cli-commands-and-options) — `maestro test` flags, `start-device` command (HIGH confidence)
+- [Maestro install docs](https://docs.maestro.dev/maestro-cli/how-to-install-maestro-cli) — curl install, `brew install maestro` warning (HIGH confidence)
+- [dart-lang/test JSON reporter spec](https://github.com/dart-lang/test/blob/master/pkgs/test/doc/json_reporter.md) — complete NDJSON event type protocol for `flutter test --machine` (HIGH confidence)
+- [dart.dev/tools/dart-analyze](https://dart.dev/tools/dart-analyze) — `--format machine`, `--fatal-warnings`, `--fatal-infos` flags (MEDIUM confidence — exit code enumeration not explicit in official docs, inferred from behavior and community usage)
+- [Android Developers: Start emulator from command line](https://developer.android.com/studio/run/emulator-commandline) — `-avd`, `-no-window`, `-no-audio`, `-list-avds` flags (HIGH confidence)
+- [Android Developers: adb reference](https://developer.android.com/tools/adb) — `sys.boot_completed`, `adb emu kill`, `adb wait-for-device` (HIGH confidence)
+- [junit2json on npm](https://www.npmjs.com/package/junit2json) — v3.2.0, TypeScript types, ESM/CJS (HIGH confidence)
+- [GitHub: Kesin11/ts-junit2json](https://github.com/Kesin11/ts-junit2json) — source, 12 stars, parse() API (MEDIUM confidence — low star count but actively maintained and purpose-built)
+
+---
+*Stack research for: Forge autonomous development orchestrator*
+*Researched: 2026-03-05 (base) + 2026-03-28 (Flutter mobile additions)*

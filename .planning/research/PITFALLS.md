@@ -1,258 +1,299 @@
 # Pitfalls Research
 
-**Domain:** Autonomous AI coding orchestrator (Claude Agent SDK)
-**Researched:** 2026-03-05
-**Confidence:** HIGH (official SDK docs verified, StrongDM learnings documented, community issues confirmed)
+**Domain:** Adding Flutter mobile verification and UAT to an existing Node.js/TypeScript build orchestrator (Forge v1.1)
+**Researched:** 2026-03-28
+**Confidence:** HIGH (official Flutter/Dart docs, Maestro issue tracker, Android/iOS developer docs, GitHub issue analysis)
+
+---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Agent SDK Process Spawn Overhead (~12s per query)
+### Pitfall 1: Flutter Startup Lock Blocks Parallel Builds
 
 **What goes wrong:**
-Every `query()` call spawns a fresh Claude Code process. This takes ~12 seconds of cold-start overhead regardless of task complexity. For Forge's architecture where each step is a separate `query()` call, a pipeline with 50+ steps incurs 10+ minutes of pure initialization overhead. Worse, running 3 concurrent phases means 3 concurrent process spawns competing for system resources.
+Flutter uses a global file-based startup lock (`~/.flutter` or the SDK cache directory). If Forge ever fires two Flutter CLI commands (e.g., `flutter analyze` and `flutter build apk`) concurrently — even in separate phases — the second command hangs indefinitely printing "Waiting for another flutter command to release the startup lock..." This is a complete deadlock that requires killing the orphaned process and deleting the lock file manually.
 
 **Why it happens:**
-The Agent SDK is architecturally a wrapper around Claude Code CLI, not a pure API library. Each `query()` call spawns a new Node.js subprocess that initializes the full Claude Code environment. There is no hot process reuse or daemon mode (feature requested in [issue #33](https://github.com/anthropics/claude-agent-sdk-typescript/issues/33), not yet implemented).
+The Flutter toolchain is not designed for parallel execution. The startup lock is a single global resource shared across all invocations on the machine. Forge's existing pipeline runs verifiers in parallel (`Promise.all`) and may trigger concurrent Flutter CLI calls if the verifier runner is not gated.
 
 **How to avoid:**
-- Use session resumption (`resume` option with session IDs) to keep a warm process for multi-turn interactions within a single step. Subsequent messages within a session drop to ~2-3s.
-- Batch small related operations into single `query()` calls instead of one-call-per-operation. A "plan phase" step can include context gathering + planning in one call rather than two.
-- Accept the 12s overhead as a fixed cost per step; design step granularity accordingly (fewer, bigger steps rather than many tiny ones).
-- Do NOT attempt to work around this by using the raw Anthropic Messages API -- you would lose all Claude Code built-in tools.
+- Serialize all Flutter CLI invocations with a process-level mutex in the new `flutter-verifier.ts`. No two Flutter commands may run simultaneously.
+- If running multiple Flutter commands in sequence (analyze → build → test), pipe them as a single shell chain or a sequential awaited function — never `Promise.all`.
+- Add detection: if stdout contains "Waiting for another flutter command" kill the process and surface it as a verifier error, not a hang.
 
 **Warning signs:**
-- Pipeline taking 30+ minutes with most time spent on initialization.
-- Performance profiling shows `query()` call setup dwarfing actual agent work for simple steps.
+- Forge hangs after starting a verifier with no new output for >30 seconds.
+- `ps aux | grep flutter` shows multiple Flutter processes in state `S+` (sleeping).
+- Timeout kills are needed regularly.
 
 **Phase to address:**
-Step Runner implementation (Phase 2). The step runner must be designed with this overhead in mind. Step granularity decisions cascade through the entire system.
+Flutter verifier implementation (Phase 1 of v1.1). The serialization constraint must be baked in from day one — it cannot be retrofitted after the verifiers are used in parallel contexts.
 
 ---
 
-### Pitfall 2: The Circularity Problem -- Same Model Writes Code and Tests
+### Pitfall 2: Android Emulator Startup Takes 3-5 Minutes and Fails Silently
 
 **What goes wrong:**
-When the same Claude model writes both the implementation code and the test code, they share identical blind spots. If the model misunderstands a requirement or edge case, it bakes that misunderstanding into both the production code AND the test, which passes but the system is wrong. StrongDM documented this concretely: agents wrote `return true` to satisfy narrowly formulated tests. Tests pass, production breaks.
+The Android emulator (QEMU-backed AVD) takes 2-5 minutes to reach a usable state on a cold start. `emulator @MyAVD` returns immediately — the process is running, but the device is not ready. Polling `adb devices` shows the device, but `adb shell getprop sys.boot_completed` returns "0" for minutes. If Forge starts running Maestro flows or `flutter run` before boot completes, tests get mysterious "device not found" or "Activity not found" errors that look like app bugs.
 
 **Why it happens:**
-The builder and the verifier share the same training data, the same reasoning patterns, and the same documentation interpretation. Without external diversity in the verification signal, the system converges on internally consistent but externally incorrect results.
+The emulator binary starts the QEMU guest asynchronously. There is no synchronous "emulator ready" signal from the process itself — you must poll ADB. Forge's existing health-check model (`curl -sf <url>`) does not translate to the mobile world where the "health signal" is an ADB property.
 
 **How to avoid:**
-- Forge's programmatic verification is the primary defense. Code-based checks (fs.existsSync, test runner exit codes, typecheck, lint) cannot be "fooled" by a model.
-- For test quality: the spec compliance loop should verify requirement acceptance criteria against ACTUAL behavior (curl the endpoint, check the response), not just "test file exists."
-- UAT is critical -- it tests from outside the model's perspective by exercising the actual application.
-- Consider StrongDM's "holdout set" pattern: define some acceptance criteria that are NOT shown to the building agent, only to the verification step.
-- Never let the gap closure agent both diagnose AND verify its own fix. The verification must always be programmatic.
+- Boot wait loop: poll `adb -s <device_serial> shell getprop sys.boot_completed` every 3 seconds with a 5-minute total timeout. Only proceed when value is `"1"`.
+- Additionally check `adb -s <device_serial> shell pm path android` to confirm package manager is initialized (boot_completed can flip before all services are up).
+- Use `emulator -no-window -no-audio -gpu swiftshader_indirect` for headless execution — never assume a display is available in CI.
+- Always record the emulator PID and serial at startup; store in Forge state so cleanup can target the right process.
+- Never use `adb wait-for-device` alone — it fires when USB is connected, not when boot completes.
 
 **Warning signs:**
-- All tests pass on first attempt (suspiciously clean).
-- Test assertions are tautological (testing that code returns what code returns).
-- Spec compliance loop converges in round 1 with no gaps (should be skeptical).
+- Tests fail with "device not found" errors that resolve on manual retry minutes later.
+- Maestro reports "app not launched" on first run but succeeds on second.
+- ADB shows device but `sys.boot_completed` is `0` during test execution.
 
 **Phase to address:**
-Verifiers implementation (Phase 3). This is the most critical phase. Every verifier must check REAL outcomes, not model-reported outcomes. The UAT phase design must also address this.
+Emulator lifecycle management (Phase 1 of v1.1, emulator manager). Boot wait is the most fundamental piece of mobile testing infrastructure — without it nothing else works reliably.
 
 ---
 
-### Pitfall 3: State Corruption from Concurrent Phase Writes
+### Pitfall 3: Emulator Resource Leak on Test Failure
 
 **What goes wrong:**
-When running 3 phases concurrently (as the spec allows via `Promise.all`), all three phases read `forge-state.json`, modify their portion, and write back. Without synchronization, writes clobber each other: Phase 2 finishes, writes state, then Phase 3 finishes and writes its state -- overwriting Phase 2's results. Node.js `fs.writeFile` is NOT atomic on most filesystems.
+If a verifier, build step, or UAT run throws an exception before cleanup, the emulator process stays alive. On the next Forge run (or resume), a second emulator is started. Two emulators compete for ADB. After 3-4 runs, the machine has 4 AVD processes consuming 8-12GB RAM and 6-8 CPU cores, making every subsequent run progressively slower until the machine OOMs. The emulators are invisible to Forge because their PIDs are no longer tracked in state.
 
 **Why it happens:**
-The spec says "Merge results into state AFTER all concurrent phases complete (avoid race condition)" but this is easier said than done. If any phase crashes mid-execution, partial state updates may be lost. Multiple concurrent `query()` calls may also write to the same project files (git conflicts, shared config files).
+Forge's existing cleanup model relies on `try/finally` around Docker compose (`stopApplication`). The same pattern doesn't automatically apply to a spawned emulator process because the emulator is a long-lived subprocess started at the beginning of the mobile UAT phase — not a Docker container with a clean teardown command.
 
 **How to avoid:**
-- Implement a state manager with a mutex/lock around all state writes. Use a file-based lock (`proper-lockfile` npm package) or an in-memory mutex since Forge is a single Node.js process.
-- Write state using atomic file operations: write to a temp file, then rename (rename is atomic on POSIX). Never write directly to `forge-state.json`.
-- Each concurrent phase should accumulate its own results in memory or a phase-specific temp file, then merge into the main state file sequentially after all phases in a wave complete.
-- Use `git worktrees` for concurrent phases modifying the same repo, or ensure phase file scopes never overlap.
+- Always start the emulator inside a `try/finally` block in TypeScript. The `finally` must call `adb -s <serial> emu kill` or `kill <pid>` regardless of whether tests passed or threw.
+- Register a `process.on('exit')` handler in the emulator manager that kills all tracked emulators, so even a SIGKILL scenario gets best-effort cleanup.
+- On startup, enumerate existing emulators via `adb devices | grep emulator` and kill any that are NOT tracked in forge-state. This cleans up leaks from previous crashed runs.
+- Store emulator PIDs and ADB serials in `forge-state.json` under a `activeEmulators` key so resume/cleanup can target them precisely.
 
 **Warning signs:**
-- `forge-state.json` shows stale phase data after concurrent execution.
-- Resume after crash shows phases as "pending" that were actually completed.
-- Git merge conflicts between concurrent phase branches.
+- `adb devices` lists more emulators than Forge started.
+- Machine RAM steadily rising across test runs.
+- `ps aux | grep emulator` shows processes with long uptime from previous sessions.
 
 **Phase to address:**
-State Manager implementation (Phase 1). This must be designed for concurrency from day one, not retrofitted. The Pipeline Controller (Phase 5) depends on this.
+Emulator lifecycle management (Phase 1 of v1.1). Cleanup must be implemented simultaneously with startup — never add startup without cleanup.
 
 ---
 
-### Pitfall 4: Budget Enforcement Has a Gap Between Check and Spend
+### Pitfall 4: `flutter test --machine` JSON Output is Contaminated by Gradle Output
 
 **What goes wrong:**
-The spec checks budget BEFORE starting a step (`if (state.totalBudgetUsed >= config.maxBudgetTotal)`), but a step can consume its entire per-step budget ($15 default) before the check runs again. If totalBudgetUsed is $190 and maxBudgetTotal is $200, the next step passes the check but may spend $15, bringing total to $205 -- 2.5% over budget. Worse: the SDK's `maxBudgetUsd` parameter is a "target rather than a strict limit" for extended thinking, meaning actual spend can exceed the cap.
+When running `flutter test integration_test --reporter json` (or `--machine`), Flutter on Android emits Gradle build progress lines (e.g., "Running Gradle task 'assembleDebug'... 6.8s") directly into the same stdout stream as the JSON test events. Standard JSON.parse on the full output fails with a parse error. Forge's existing `testsVerifier` assumes each line of the output is parseable JSON — this assumption breaks completely for Flutter integration tests.
 
 **Why it happens:**
-Budget enforcement operates at two levels with a gap between them: (1) Forge's own pre-step check, which is coarse-grained, and (2) the SDK's `maxBudgetUsd`, which may not be a hard stop. The SDK reports `total_cost_usd` on the result message, but by then the money is already spent.
+`flutter test` wraps `dart test` but also drives the Android build toolchain. Gradle does not respect the JSON reporter flag and writes its progress to stdout regardless. This is a known upstream bug (flutter/flutter#123873) with no fix planned — the workaround must be in the consumer.
 
 **How to avoid:**
-- Set per-step `maxBudgetUsd` to `min(config.maxBudgetPerStep, config.maxBudgetTotal - state.totalBudgetUsed)` -- dynamically reduce the per-step cap as you approach total budget.
-- Track cost incrementally using the SDK's per-step usage data (TypeScript SDK exposes per-step token breakdowns on each assistant message). Update running totals during streaming, not just at the end.
-- Add a safety margin: set the internal budget limit 10% below the advertised limit so overruns stay within bounds.
-- Handle the `error_max_budget_usd` result subtype gracefully -- partial work may exist and should be verified.
+- Filter the test output stream: only parse lines that start with `{` as JSON events. Drop all other lines.
+- Use the Dart test JSON reporter protocol (not `--machine`): `flutter test --reporter json`. Parse each `{...}` line as a separate event object.
+- Interpret results from the final `DoneEvent` (type `"done"`) which has `success: true/false`. Do NOT rely on exit code alone — `flutter test` can exit 0 with failures if the reporter misreports.
+- Cross-check: `success: false` in DoneEvent OR any `TestDoneEvent` with `result: "failure"` or `result: "error"` constitutes a failing suite.
 
 **Warning signs:**
-- Total spend exceeds configured max_budget_total.
-- Steps routinely hit their maxBudgetUsd limit (indicates steps are too large or prompts are too broad).
-- Cost tracking shows 0 for completed steps (cost data not being captured from result messages).
+- JSON.parse throws on the raw output of `flutter test`.
+- Verifier reports parse error instead of actual test results.
+- `numPassedTests === 0` even when tests ran (parser skipped all events).
 
 **Phase to address:**
-Cost Controller implementation (Phase 2, alongside Step Runner). Budget enforcement must be baked into the step runner from the start.
+Flutter test verifier (Phase 1 of v1.1). The JSON parsing layer must handle multi-format contaminated output from the start — treat this as a design constraint, not an edge case.
 
 ---
 
-### Pitfall 5: Mock Drift -- Mocks That Don't Match Real APIs in Wave 2
+### Pitfall 5: Maestro Animation Flakiness — Tap After Navigation Transition Fails
 
 **What goes wrong:**
-Wave 1 builds everything with mocks for external services (Stripe, AWS, etc.). Wave 2 swaps mocks for real implementations. But the mock behavior drifts from the real API: different response shapes, missing error cases, auth flows that work differently in reality. The entire integration layer, tested and "verified" in Wave 1, breaks in Wave 2. This is not a minor fix -- it can require rewriting entire integration paths.
+Maestro flows that tap a button immediately after a screen navigation (e.g., pushing a new route in Flutter Navigator) fail intermittently. The element is found by Maestro (accessibility tree shows it) but the tap does not register because the Flutter rendering engine is still mid-animation. The element is present but its position is changing. Depending on timing, the tap hits the old screen or a transitioning element. Maestro does not automatically detect this — it reports the interaction as completed and then the subsequent assertion fails. Failure rates of 20-30% per flow are common.
 
 **Why it happens:**
-Mocks are written by an AI agent that has training-data-level knowledge of APIs, not current-version knowledge. The mock interface may match the TypeScript types but miss runtime behaviors: rate limits, pagination cursors, webhook signature verification, OAuth refresh flows, error response formats.
+Flutter's Navigator animations (hero, slide, fade) run on the UI thread and take 200-400ms by default. Maestro's "wait for element" heuristic detects when an element enters the accessibility tree but does not wait for the element's position to stabilize. The `waitForAnimationToEnd` modifier in Maestro improves this but is not applied automatically. The issue is marked "not planned" upstream (Maestro issue #1703).
 
 **How to avoid:**
-- TypeScript interfaces are necessary but not sufficient. The interface guarantees shape, not behavior.
-- Use contract tests: define expected request/response pairs from official API documentation and verify both mock AND real implementations satisfy them.
-- Tag mock limitations explicitly: `// MOCK LIMITATION: does not simulate rate limiting` so Wave 2 knows what to expect.
-- During Wave 2, run the same test suite against both mock and real to surface behavioral differences before swapping.
-- Prioritize official SDK client libraries (e.g., `stripe` npm package) over hand-written API calls -- they encode correct behavior.
+- Generate Maestro flows with `waitForAnimationToEnd: true` as a default after every `tapOn` that triggers a navigation.
+- Alternatively, instruct the agent to build the Flutter app with `debugDisableAnimations: true` in test mode (via `FlutterTest.binding.debugDisableAnimations`), which disables animation entirely for test builds.
+- Prefer `assertVisible` over `tapOn` to verify navigation completed before interacting with the new screen.
+- In the Maestro flow generator prompt, always include: "After any navigation action, add a `waitForAnimationToEnd` command before asserting elements on the new screen."
 
 **Warning signs:**
-- Wave 2 integration tests fail on real APIs despite Wave 1 tests passing with mocks.
-- Mock implementations are simpler than expected (happy-path only).
-- No mock implementation for error cases, auth flows, or pagination.
+- Maestro test suite passes 70-80% of the time but not 100%.
+- Failures cluster on tests that navigate between screens.
+- Maestro logs show the expected element was found but the subsequent assertion fails.
 
 **Phase to address:**
-Mock Strategy implementation (Phase 4, External Service Mocking). Contract test infrastructure must be built alongside mocks. Wave 2 integration phase must have its own dedicated verification cycle.
+Mobile UAT via Maestro (Phase 2 of v1.1). The flow generator prompt must include animation-awareness instructions. Do not allow the agent to generate flows that tap immediately after navigation without explicit wait.
 
 ---
 
-### Pitfall 6: Verification That Doesn't Actually Verify
+### Pitfall 6: Emulator Requires KVM/Hardware Acceleration — Unavailable in Most Docker/CI Environments
 
 **What goes wrong:**
-Verification checks pass but don't prove correctness. Examples: (1) `fs.existsSync(file)` -- file exists but is empty or has wrong content. (2) `npm test -- --json` exits 0 but the JSON shows skipped tests counted as "passing." (3) `git log` shows commits exist but they contain no meaningful changes. (4) Test coverage shows 100% but tests have no assertions. The system reports "all verified" while the codebase is broken.
+The Android emulator needs hardware virtualization (KVM on Linux, HAXM on macOS, Hyper-V on Windows) to run at usable speed. Without it, the emulator falls back to software TCG emulation, which is 8-12x slower — a "booting" state can take 20+ minutes and tests that normally take 30 seconds take 10 minutes. In Docker-based CI (standard containers, GitHub Actions free tier, most cloud CI systems), nested virtualization is blocked entirely and the emulator either fails to start or is unusably slow.
 
 **Why it happens:**
-Verification is hard. The spec's pseudocode verifiers check necessary conditions but not sufficient conditions. Existence checks, exit code checks, and count checks are easy to implement but easy to game (intentionally or not by the AI agent).
+Forge's existing pipeline makes no distinction between "can run Docker" and "can run Android emulator." Docker is universally available; KVM is not. The agent building a Flutter app will assume emulator testing is straightforward when it is not.
 
 **How to avoid:**
-- Layer verification: existence check AND content validation AND behavioral test.
-- For test verification: parse the JSON output fully -- check `numPassedTests > 0` (not just `numFailedTests === 0`), check `numPendingTests === 0`, check that test count increased from last phase.
-- For file verification: check file size > minimum threshold, parse and validate structure (e.g., PLAN.md must have specific sections).
-- For git verification: check diff stats (insertions > 0), not just commit existence.
-- For typecheck/lint: capture stderr and verify it's truly clean (some tools exit 0 with warnings).
-- Run verification in a clean environment (fresh Docker container) to catch "works on my machine" issues.
+- Gate emulator-based verification on a pre-flight check: `kvm-ok` (Linux) or check that `/dev/kvm` exists and is readable. If KVM is absent, log a clear warning and skip emulator-based steps, reporting them as "skipped (no hardware acceleration)" rather than failing.
+- Document the requirement in the forge.config.json Flutter configuration: `emulator.requiresKvm: true` (default).
+- For macOS CI (local developer machines), macOS has native hypervisor support and works well. For Linux CI, require `--nested-virtualization` capable runner (GitHub Actions larger runners, AWS bare-metal instances).
+- Offer an iOS simulator path as a fallback for macOS environments where Android KVM is unavailable.
 
 **Warning signs:**
-- Verification always passes (never catches real issues -- means it's too permissive).
-- Gap closure loop converges in 1 round (verification wasn't catching the real gaps).
-- Manual inspection reveals issues that programmatic verification missed.
+- Emulator starts but `adb devices` shows the device as `offline` for >5 minutes.
+- Build logs show "WARNING: Software fallback has been enabled" from QEMU.
+- Boot takes >10 minutes.
 
 **Phase to address:**
-Verifiers implementation (Phase 3). Every verifier needs both positive checks (thing exists, tests pass) AND negative checks (thing isn't trivial, tests aren't empty). Build verification tests that intentionally verify the verifiers themselves.
+Emulator lifecycle management AND verifier capability detection (Phase 1 of v1.1). Add a `canRunEmulator()` pre-flight function that checks for virtualization support before ever attempting emulator launch.
 
 ---
 
-### Pitfall 7: `bypassPermissions` Safety and Subagent Inheritance
+### Pitfall 7: `flutter analyze` / `dart analyze` Exit Code Does Not Capture Warnings by Default
 
 **What goes wrong:**
-Setting `permissionMode: "bypassPermissions"` gives the agent full system access: it can run ANY bash command, write to ANY file, access the network, and delete files. Critically, all subagents inherit this mode and it CANNOT be overridden. A subagent spawned for "documentation updates" has the same unrestricted system access as the main execution agent. The `allowedTools` parameter does NOT constrain this mode -- every tool is approved regardless.
+`flutter analyze` exits 0 (success) when the project has warnings and info-level issues, but no errors. An orchestrator that treats exit code 0 as "analyze passed" will ship code with dozens of lint warnings, deprecated API usages, or null-safety violations. Conversely, without `--no-fatal-infos`, `dart analyze` exits 1 on TODO comments, causing every build to fail on trivial noise.
 
 **Why it happens:**
-The SDK's permission model is hierarchical with the strongest mode winning. `bypassPermissions` was designed for fully trusted environments, but in an autonomous orchestrator, different steps have very different trust requirements (a test runner should not be able to delete source files).
+Dart's analyzer has three severity levels: error (always fatal), warning (fatal by default in `dart analyze`, but configurable), and info (not fatal by default). The behavior differs between `dart analyze` and `flutter analyze` — `flutter analyze` uses `--no-fatal-infos` automatically, but `dart analyze` does not. Forge's verifier must be explicit about which flags to use.
 
 **How to avoid:**
-- Use `bypassPermissions` only for execution steps that genuinely need full system access.
-- For verification steps, use `acceptEdits` or `default` mode with explicit `allowedTools` lists.
-- Use `disallowedTools` (checked before permission mode) to block specific dangerous tools even in bypass mode. Example: `disallowedTools: ["Bash"]` for read-only analysis steps.
-- Set `allowDangerouslySkipPermissions: true` explicitly (required safety flag) -- this forces conscious acknowledgment.
-- Consider running execution steps in Docker containers to sandbox the blast radius.
+- Run `flutter analyze --no-fatal-infos` (recommended default): exits 0 only when there are no errors and no warnings, but ignores info/hint messages.
+- Parse the stdout output to extract the summary line: "No issues found!" vs. "N issues found." Exit code alone is insufficient — a bug in older Dart versions caused exit 0 on warnings.
+- Warn (but do not fail) on info-level issues by parsing the count from stdout: if the summary contains a count > 0, include it in the verifier details.
+- Respect the project's `analysis_options.yaml` — do not override it with additional flags unless the project explicitly opts in.
 
 **Warning signs:**
-- Agent running unexpected bash commands during verification-only steps.
-- Files modified outside the expected phase scope.
-- Network calls to unexpected endpoints.
+- `flutter analyze` passes but `flutter build apk` fails with type errors (analyze was not strict enough).
+- CI passes but code review reveals dozens of warnings (exit code masking).
+- `dart analyze` fails on every PR due to TODO comments (using `--fatal-infos` accidentally).
 
 **Phase to address:**
-Step Runner implementation (Phase 2). Permission mode should be configurable per step type, not globally set for all steps.
+Flutter analyze verifier (Phase 1 of v1.1). The verifier must use `--no-fatal-infos` by default and parse the summary line, not just the exit code.
 
 ---
 
-### Pitfall 8: Crash Recovery Loses In-Flight Work
+### Pitfall 8: Gradle Daemon Java Version Mismatch Causes Silent Build Corruption
 
 **What goes wrong:**
-Forge crashes mid-phase (OOM, power loss, SIGKILL). The agent had made 15 commits and was running tests. `forge-state.json` still shows the phase as "in_progress" because state was being updated in memory, not yet flushed. On resume, Forge re-runs the entire phase from scratch, redoing all 15 commits' worth of work (doubling cost) or worse -- the re-execution creates conflicts with the existing partial work.
+Flutter's Android build toolchain requires specific Java/Gradle version combinations. When the system has multiple Java versions (e.g., Java 11 from a legacy project and Java 17 from a new one), the Gradle daemon started by one project can be reused by another project that expects a different Java version. The error is: "The newly created daemon process has a different context than expected. Context mismatch: Java home is different." The build either fails with a cryptic error or — worse — succeeds but produces a corrupted APK.
 
 **Why it happens:**
-The spec describes file-based checkpoints (CONTEXT.md, PLAN.md exist -> skip those steps) but execution checkpoints within a phase are not persisted. The query() call is atomic from Forge's perspective -- it either completes or it doesn't.
+Gradle's daemon reuse policy matches based on Gradle version and JVM arguments, but not strictly on Java home path in all versions. On a developer machine with multiple projects, this is a constant source of confusion. In Forge's context, if Forge itself runs in a different JVM than the Flutter project expects, the daemon inherits the wrong Java.
 
 **How to avoid:**
-- Flush state to disk after EVERY significant state change, not just at phase boundaries. Use write-ahead logging pattern: write intended change, then execute, then mark complete.
-- Leverage the SDK's session management: capture `session_id` from the init message and store it. On crash recovery, resume the session with `resume: sessionId` to continue from where the agent left off.
-- Check git status on resume: if the phase branch has commits, use them as a checkpoint. Don't re-execute work that's already committed.
-- Use `process.on('SIGTERM', ...)` and `process.on('SIGINT', ...)` to flush state on graceful shutdown.
+- Always run `flutter build` with `--dart-define=...` and a clean environment: set `JAVA_HOME` explicitly to the Java version the project requires before spawning the build process.
+- Use `flutter clean` before the first build in a new Forge pipeline to invalidate stale Gradle daemon state.
+- In the build verifier, check `flutter doctor -v` output for "Android toolchain" and "Java" version compatibility before attempting a build.
+- Treat any build failure containing "daemon" or "java home" in the error message as a toolchain configuration error, not an application bug — surface it with clear remediation instructions.
 
 **Warning signs:**
-- `forge-state.json` last modified timestamp is much older than the last git commit.
-- Resume after crash duplicates commits (same requirement IDs, different SHAs).
-- State shows 0 budget used for phases that clearly consumed resources.
+- `flutter build apk` fails with "daemon process has a different context."
+- Builds succeed locally but fail on the CI agent (different Java version).
+- Gradle wrapper downloads a new distribution even though it was cached (version mismatch).
 
 **Phase to address:**
-State Manager (Phase 1) and Step Runner (Phase 2). Session ID capture must be in the step runner. State persistence strategy must be crash-safe from the start.
+Flutter build verifier (Phase 1 of v1.1). The build step must set `JAVA_HOME` explicitly and run `flutter doctor` as a pre-flight check.
 
 ---
 
-### Pitfall 9: Context Window Exhaustion Within a Step
+### Pitfall 9: CocoaPods Cache Staleness Breaks iOS Builds
 
 **What goes wrong:**
-A single `query()` call for a complex execution step accumulates context as the agent reads files, makes edits, and runs commands. The 200K token context window fills up. Once full, the agent loses earlier context (files it read, decisions it made) and starts making contradictory changes or hallucinating file contents. The SDK may truncate older messages silently.
+On macOS, Flutter's iOS build requires CocoaPods to resolve native dependencies. After a `flutter pub get` that changes native dependencies, the `ios/Pods` directory and `ios/Podfile.lock` become stale. Running `flutter build ios` fails with errors like "CocoaPods's specs repository is too out-of-date to satisfy dependencies" or mismatched `PODS_ROOT`. This is not caught by `flutter doctor` and the error messages are opaque.
 
 **Why it happens:**
-The spec's "fresh context per step" design mitigates cross-step accumulation, but within a single step, context still grows. A phase execution step that creates 20+ files, runs multiple test suites, and does gap closure within a single query() call can easily exceed 200K tokens.
+CocoaPods has a separate cache layer (`~/.cocoapods/repos/`) that tracks spec repository state. When Flutter adds a new plugin with iOS native code, CocoaPods must fetch the spec from the repository. If the local specs repo is stale (>7 days old or never initialized), pod install fails. In CI environments where the CocoaPods cache is not preserved, this is a cold-start failure on every run.
 
 **How to avoid:**
-- Keep individual steps focused: execute code, verify code, fix gaps should be SEPARATE query() calls, not one mega-call.
-- Use `maxTurns` to cap how long any single query() call can run (prevents infinite tool-use loops).
-- Avoid injecting entire file contents into prompts -- reference file paths and let the agent read them (reads are cached).
-- Monitor token usage via the per-step usage data and log warnings when approaching 80% of context window.
-- For large phases, break execution into sub-steps (e.g., "implement backend", "implement frontend", "write tests" as separate query() calls).
+- Before running `flutter build ios`, check if `ios/Pods/Manifest.lock` matches `ios/Podfile.lock`. If they differ, run `cd ios && pod install` explicitly.
+- Cache `~/.cocoapods/repos/` in CI to avoid fetching the full spec repo (250MB+) on every run.
+- If pod install fails, run `pod repo update` and retry once before failing.
+- For the Forge build verifier, treat any iOS build failure mentioning "Pods" or "CocoaPods" as a dependency resolution error, not an application error.
 
 **Warning signs:**
-- Agent starts hallucinating file contents or forgetting earlier changes within a single step.
-- Agent creates duplicate files or overwrites its own recent work.
-- Step cost is disproportionately high (lots of tokens consumed aimlessly).
+- iOS build fails but Android build succeeds on the same code.
+- Error contains "CocoaPods out of date" or "Podfile.lock out of date."
+- CI iOS builds consistently take 5+ minutes longer than expected (downloading the specs repo every time).
 
 **Phase to address:**
-Step Runner (Phase 2) and Phase Runner (Phase 4). Step granularity design is critical. The phase runner must decompose phases into appropriately-sized steps.
+Flutter build verifier (Phase 1 of v1.1, iOS path). Add a pre-build `pod install` check to the iOS build step. Document the CocoaPods cache requirement for CI environments.
 
 ---
 
-### Pitfall 10: Spec References Pseudocode API That Doesn't Match Real SDK
+### Pitfall 10: Maestro `--format junit` Flag Causes False Failures (Regression Bug)
 
 **What goes wrong:**
-The SPEC.md was written before the SDK was fully stable. It uses pseudocode like `query({ prompt, options: { maxBudgetUsd, permissionMode, maxTurns, model, agents } })` but the actual SDK API has different parameter nesting, additional required flags (`allowDangerouslySkipPermissions`), and features not anticipated by the spec (hooks, plugins, effort levels, structured outputs, sandbox settings). Building directly from the spec's code blocks produces code that doesn't compile.
+In Maestro 2.0.x, using `--format junit` causes `maestro test` to report test failure even when all individual flows pass. The JUnit XML file is generated correctly but the process exit code is 1. The inverse is also true: in some configurations, Maestro exits 0 but writes a JUnit XML that shows failures. If Forge trusts exit code alone or the JUnit file alone, it gets the wrong answer.
 
 **Why it happens:**
-The spec explicitly warns about this ("code blocks are pseudocode") but during implementation it's easy to cargo-cult the spec's patterns without verifying against current SDK docs.
+Maestro's format flag handling has had multiple regressions. The `--format` flag triggers additional output processing that can throw exceptions after all flows have completed, causing a non-zero exit code that doesn't represent actual test results. This is a known regression (Maestro issue #2706) reported in 2024 and intermittently fixed/broken across patch versions.
 
 **How to avoid:**
-- Treat the SPEC.md as a behavior specification, not an API reference. The prose describes WHAT to build; the SDK docs describe HOW to call the API.
-- Before writing any code, build a minimal proof-of-concept that exercises the actual SDK: spawn a query, capture the session ID, track cost, handle permissions, parse messages.
-- Maintain a mapping document: "SPEC concept -> actual SDK API" for the team.
-- Key differences to verify immediately:
-  - `systemPrompt` requires `{ type: "preset", preset: "claude_code" }` for CC behavior
-  - `settingSources` must include `"project"` to load CLAUDE.md
-  - `allowDangerouslySkipPermissions: true` is required for bypass mode
-  - `agents` uses `tools` not `allowedTools` for subagent tool definitions
-  - Cost tracking uses `total_cost_usd` on result messages, not a callback
+- Run `maestro test` WITHOUT `--format junit`. Parse Maestro's default stdout output for pass/fail signals instead.
+- Alternatively, use `maestro test --format junit --output results.xml` and then verify BOTH: exit code AND the JUnit XML content. If they disagree, trust the JUnit XML (it is written by the test execution path, not the reporting path).
+- Parse the JUnit XML for `<testsuite failures="0" errors="0">` rather than relying on the exit code as the sole truth signal.
+- Pin the Maestro CLI version in the project's toolchain: use `maestro --version` output to detect version before running. Avoid using whatever `maestro` happens to be on PATH.
 
 **Warning signs:**
-- TypeScript compilation errors referencing SDK types.
-- Runtime errors about unknown options or missing required fields.
-- Features described in spec don't work as expected.
+- Maestro logs show "Flow Completed" for all flows but the process exits 1.
+- CI shows red but the test output shows all flows passed.
+- JUnit XML exists and shows 0 failures but Forge marks the UAT step as failed.
 
 **Phase to address:**
-Phase 0 / POC (before any real implementation). The CLAUDE.md build strategy mandates this: "Research the Agent SDK's actual TypeScript API... Build a minimal proof-of-concept... Only THEN start building the full pipeline."
+Mobile UAT via Maestro (Phase 2 of v1.1). The Maestro result interpreter must use defense-in-depth: check both exit code and output content, and prefer content when they conflict.
+
+---
+
+### Pitfall 11: `flutter run` Does Not Exit — It Is a Long-Running Process
+
+**What goes wrong:**
+Forge's existing pipeline treats all build/verify commands as processes that run and exit. `flutter run` is fundamentally different: it starts the app on the emulator and then holds the terminal open, forwarding logs and handling hot reload. If Forge starts `flutter run` as a regular `execWithTimeout` call expecting it to exit, it will either (a) hang forever, (b) be killed by the timeout before Maestro can run, or (c) kill the app before tests complete.
+
+**Why it happens:**
+The UAT for web apps uses Docker as a long-lived background process, and Forge has `startApplication`/`stopApplication` lifecycle methods. Mobile UAT requires the same pattern but with `flutter run` instead of Docker. The distinction between "start" (non-blocking) and "wait for ready" and "stop" must be explicit.
+
+**How to avoid:**
+- Use Node.js `child_process.spawn()` (not `exec`) to start `flutter run` as a detached background process. Capture its PID and ADB device serial.
+- Wait for the "Flutter run key commands" line in stdout — this indicates the app is running and ready. Do NOT proceed until this line appears (with a 3-minute timeout).
+- After Maestro tests complete, explicitly kill the `flutter run` process by PID. Do not rely on process.exit or SIGTERM propagation.
+- Store the `flutter run` PID in `forge-state.json` so it can be killed on resume after crash.
+- Important: `flutter run` output includes both the VM service URL (used by Maestro for some interactions) and the device output log. Capture both streams.
+
+**Warning signs:**
+- Maestro tests start before the app is ready, immediately failing with "App not found."
+- After UAT, the Forge process hangs (flutter run is still running).
+- After a crash-resume, there is a zombie `flutter run` process that blocks the new emulator session.
+
+**Phase to address:**
+Mobile UAT lifecycle management (Phase 2 of v1.1). This requires a dedicated `MobileAppRunner` class analogous to Forge's `startApplication`/`stopApplication` pair, but for the `flutter run` long-lived process model.
+
+---
+
+### Pitfall 12: Headless Android Emulator Loses Window Focus — Maestro UI Interaction Fails
+
+**What goes wrong:**
+In headless CI (no display server), Android emulators run with `-no-window`. Some Maestro accessibility service operations fail when the emulator lacks an active window focus. Specifically, Maestro issues like #2750 document: "Cannot verify accessibility service flags," "Active window root not found," and "Could not detect idle state" — all from running headless. Flows work locally (with a window) but fail consistently in CI (without).
+
+**Why it happens:**
+Android's accessibility framework has edge cases in windowless mode. Maestro's UIAutomator-based element detection relies on the accessibility service reading the active window's root view hierarchy. In headless mode, when `launchApp` / `killApp` sequences are used (as Maestro UAT flows typically do), the window manager loses track of the active window between launches.
+
+**How to avoid:**
+- Use `-gpu swiftshader_indirect` (software rendering without a real GPU) combined with `-no-window` instead of `-gpu off` — `swiftshader_indirect` maintains a proper graphics context that the accessibility framework can use.
+- Avoid `killApp` + `launchApp` sequences in Maestro flows. Instead, use `clearState: true` in the app launch configuration to reset state without killing and relaunching.
+- If `launchApp`/`killApp` sequences are unavoidable, add a 3-5 second sleep between kill and relaunch to allow the window manager to reset.
+- For flows that must run in CI, test them headlessly locally first using `emulator -no-window` before claiming they work.
+
+**Warning signs:**
+- Tests pass 100% locally but fail 30-60% of the time in CI.
+- Maestro logs contain "Active window root not found" or "accessibility service flags."
+- Failures are more common on the second or third flow in a multi-flow test suite.
+
+**Phase to address:**
+Emulator lifecycle management AND Maestro flow template (Phase 1 and Phase 2 of v1.1). The emulator startup configuration must use `swiftshader_indirect`. The flow template generator must avoid kill/relaunch patterns.
 
 ---
 
@@ -262,28 +303,31 @@ Shortcuts that seem reasonable but create long-term problems.
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Skipping session ID capture | Simpler step runner | Cannot resume crashed steps; must re-execute entirely | Never -- session IDs are trivial to capture |
-| Single global permission mode | Less configuration | Cannot restrict verification steps; security risk | Only during initial POC |
-| In-memory-only state | Faster, no I/O | Any crash loses all progress | Never for production; acceptable for unit tests |
-| Hardcoded step budgets | Quick to implement | Cannot adapt to phase complexity; wastes money on simple steps or underbudgets complex ones | Only as initial defaults; must be configurable |
-| Skipping test output parsing (exit code only) | Simpler verification | Skipped tests counted as passing; empty test suites pass; no failure diagnostics | Never -- JSON parsing is straightforward |
-| Mocking query() with static responses | Fast tests | Mocks drift from real SDK behavior; false confidence | Acceptable for unit tests, but need integration tests against real SDK |
-| Sequential-only phase execution | Avoids concurrency bugs | 3x slower execution for independent phases | Acceptable for v1, but design state for concurrency |
+| Trust exit code only for `flutter test` | Simpler parser | Misses Gradle-contaminated JSON; exit 0 can mask failures | Never — parse JSON events |
+| Trust exit code only for `maestro test` | Simpler result check | `--format junit` regression causes false failures | Never — check output content too |
+| Start emulator without boot wait | Faster test start | Maestro finds no app, tests fail nondeterministically | Never — always wait for `sys.boot_completed` |
+| Skip emulator cleanup on test failure | Simpler code | Machine OOMs after 3-4 failed runs | Never — always cleanup in finally |
+| Use `dart analyze` without `--no-fatal-infos` | Stricter default | Fails on TODO comments, blocks every PR | Only if project has zero info-level issues (rare) |
+| Skip KVM availability check | Less pre-flight code | Emulator silently degrades to 12x slower mode | Never — check KVM before attempting emulator |
+| Run `flutter run` with `exec` instead of `spawn` | Less code | Hangs forever; UAT never starts | Never — `flutter run` is a daemon, use `spawn` |
+| Hardcode emulator serial `emulator-5554` | Less state tracking | Breaks when two emulators are running | Never — capture serial dynamically from `adb devices` |
 
 ## Integration Gotchas
 
-Common mistakes when connecting to the Claude Agent SDK and external services.
+Common mistakes when integrating Flutter tooling into a Node.js orchestrator.
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| Agent SDK `query()` | Assuming `allowedTools` restricts available tools in bypass mode | `allowedTools` only pre-approves; use `disallowedTools` to actually block tools |
-| Agent SDK cost tracking | Summing per-message usage without deduplicating by message ID | Parallel tool calls produce duplicate usage data; deduplicate by `message.message.id` |
-| Agent SDK sessions | Not capturing session ID from init message | Listen for `message.type === "system" && message.subtype === "init"` to get `session_id` |
-| Agent SDK system prompt | Passing a string for system prompt | Use `{ type: "preset", preset: "claude_code" }` to get Claude Code's full system prompt with tools |
-| Agent SDK settings | Expecting CLAUDE.md to be loaded automatically | Must set `settingSources: ["user", "project", "local"]` explicitly |
-| Docker test harness | Using fixed ports in docker-compose.test.yml | Use dynamic port allocation or Docker-internal DNS to avoid port conflicts in CI |
-| Git concurrent phases | Running phases on same branch | Use separate `phase-N` branches and merge after verification |
-| Notion MCP | Assuming Notion API is available without auth setup | Notion integration requires OAuth or API key setup during `forge init`, not during execution |
+| `flutter test --reporter json` | Parse all lines as JSON | Filter for lines starting with `{`; Gradle output contaminates the stream |
+| `adb devices` output | Assume first line is the device | Parse each line; filter for `emulator-XXXX\tdevice` (status must be `device`, not `offline`) |
+| `maestro test` result | Trust exit code as single truth | Check exit code AND stdout for "Flow Completed" / "Flow Failed" counts |
+| `flutter build apk` | Run concurrently with other Flutter commands | Serialize all Flutter CLI calls behind a mutex — the startup lock is global |
+| `flutter run` process | Use `execSync` or `exec` | Use `child_process.spawn()`, capture stdout stream, wait for "key commands" line |
+| Emulator boot readiness | Check `adb devices` status | Poll `adb shell getprop sys.boot_completed` until `"1"`; `adb devices` shows `online` before boot completes |
+| iOS simulator readiness | Run immediately after `xcrun simctl boot` | Poll `xcrun simctl list devices` until status is `Booted`; add extra 5s for SpringBoard |
+| CocoaPods on iOS | Run `flutter build ios` directly | Pre-check `ios/Pods/Manifest.lock` vs `ios/Podfile.lock`; run `pod install` if they differ |
+| `dart analyze` severity | Treat exit 0 as "clean" | Parse stdout summary line — exit 0 with warnings is possible in some configurations |
+| Maestro `--format junit` | Use it for structured CI output | Run without format flag OR verify BOTH exit code and XML content; they can disagree |
 
 ## Performance Traps
 
@@ -291,52 +335,49 @@ Patterns that work at small scale but fail as project complexity grows.
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Running ALL verifiers after EVERY step | Verification takes longer than execution | Run relevant verifiers only; full suite only at phase completion | >10 verifiers, >20 steps per phase |
-| Injecting full REQUIREMENTS.md into every prompt | Token waste, context dilution | Inject only relevant requirements for current phase/step | >20 requirements, >5 phases |
-| Sequential gap closure (one gap at a time) | Spec compliance loop takes hours | Batch independent gap fixes into parallel steps | >5 gaps per compliance round |
-| Full `docker compose up/down` per verification | 30-60s overhead per cycle | Keep harness running between verifications; only restart on config change | >3 verification cycles per phase |
-| Loading entire forge-state.json for every operation | I/O bottleneck, parse overhead | Cache in memory, flush periodically; only read from disk on startup/resume | State file >1MB (many phases, detailed mock registry) |
-| Re-reading all phase checkpoints on resume | Slow startup, unnecessary I/O | Index checkpoint status in state file; only read individual files when needed | >10 phases with full checkpoint directories |
+| Cold-start emulator per verifier run | Each verification takes 5+ minutes | Cache warm emulator between verifier cycles; only restart on explicit reset | Any pipeline with >2 verify cycles |
+| `flutter clean` before every build | Clean build from scratch is always 3-5 minutes | Only clean when explicitly requested or when toolchain version changes | Any pipeline with >1 build step |
+| Running `pod install` before every iOS build | 2-3 minute overhead per build | Only run if `Podfile.lock` differs from `Pods/Manifest.lock` | Any iOS pipeline with >1 build step |
+| Full `dart pub get` on every step | Unnecessary network calls, lock file thrashing | Run only at pipeline start or when `pubspec.yaml` changes | Any pipeline with >3 steps per phase |
+| Starting a new emulator for unit tests | 3-5 minute startup for tests that don't need an emulator | `flutter test` (unit) runs on host machine; only integration tests need emulator | Every pipeline — unit tests never need emulator |
 
 ## Security Mistakes
 
-Domain-specific security issues for an autonomous coding agent.
+Domain-specific security issues for mobile app orchestration.
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Storing API keys in forge-state.json | Credentials persisted in plaintext in project directory | Read from environment/env file at runtime; never persist credentials in state |
-| `bypassPermissions` with network access | Agent could exfiltrate code, credentials, or project data | Use `disallowedTools` to block WebSearch/WebFetch during execution steps; sandbox in Docker |
-| Running `forge resume --env .env.production` with real credentials | Agent has production credentials + full system access | Use test/sandbox credentials where possible; production keys only for deployment verification |
-| Trusting agent-generated test fixtures | Agent could create fixtures that match its broken implementation | Derive test fixtures from requirements/acceptance criteria, not from implementation |
-| Agent modifying forge-state.json | Agent could mark its own phase as "completed" without doing work | Make forge-state.json read-only from agent's perspective; only orchestrator code writes state |
-| No audit trail for agent actions | Cannot determine what the agent did or why | Log all query() prompts, tool calls, and responses; maintain execution history |
+| Passing real API keys to `flutter run` in emulator | Keys in ADB logcat, accessible via `adb logcat` from any process with ADB access | Use test/mock credentials for emulator-based UAT; never pass production keys |
+| Using real device over USB in CI | Physical device can be compromised, data exfiltrated | CI must always use emulators, not physical devices; real device testing is developer-only |
+| Maestro flows that create real accounts/emails | Flows may touch production if `.env.test` is not properly scoped | Maestro flows must use the same safety guardrail pattern as Forge's existing UAT safety prompt |
+| Leaving emulator running after pipeline | ADB accessible to any local process; emulator may have app data | Always kill emulator at pipeline end; emulator data is not encrypted |
 
 ## UX Pitfalls
 
-User experience issues for Forge's CLI interface and human checkpoints.
+User experience issues specific to Flutter mobile verification in Forge.
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| Human checkpoint with no progress indication | User doesn't know if Forge is stuck or working | Show phase-by-phase progress with estimated time remaining |
-| Cryptic error messages from SDK | User gets raw error traces, doesn't know what to do | Wrap SDK errors with actionable context: "Step X failed because Y. Run `forge resume` to retry." |
-| No way to skip/defer items during resume | User must provide ALL credentials to continue | Allow partial resume: `forge resume --skip stripe` to defer specific services |
-| forge status shows only state file data | User can't see what's actively happening | Show real-time agent status (current step, current phase, token usage) via stdout |
-| Budget exceeded with no warning | User discovers $200 spend after the fact | Show running cost in status output; warn at 50%, 75%, 90% of budget |
+| "Emulator starting..." with no progress indication | User doesn't know if it's 30s or 5 minutes away from ready | Show elapsed time and current boot phase ("booting...", "package manager ready...", "app installed...") |
+| Generic "flutter test failed" without test names | Developer can't identify which test broke | Parse `TestDoneEvent` with `result: "failure"` and extract test name from `TestStartEvent` by matching `testID` |
+| Silent emulator KVM fallback | User gets slow runs without understanding why | Log explicit warning: "WARNING: KVM unavailable — emulator running in software mode (8-12x slower)" |
+| Maestro flow failures without screenshot | Developer can't see what the UI looked like | Maestro captures screenshots on failure in `~/.maestro/tests/`; always surface the path in the failure message |
+| `flutter analyze` info flood | Developer dismisses all analyzer output | Surface only errors and warnings; show info count separately ("3 errors, 0 warnings, 45 hints (suppressed)") |
 
 ## "Looks Done But Isn't" Checklist
 
 Things that appear complete but are missing critical pieces.
 
-- [ ] **Step Runner:** Has `query()` call working -- verify it also captures session ID, tracks cost per step, handles `error_max_budget_usd` and `error_max_turns` result subtypes, and flushes state to disk
-- [ ] **Verifier "tests pass":** Checks exit code 0 -- verify it also parses JSON output for `numFailedTests === 0 && numPassedTests > 0 && numPendingTests === 0`
-- [ ] **Phase Runner "plan verified":** Has plan file -- verify plan checker validates requirement coverage, test task presence, AND execution order (not just file existence)
-- [ ] **Concurrent phases:** Uses `Promise.all` -- verify state merge happens AFTER all phases complete, not during, and handles the case where one phase throws
-- [ ] **Mock registry:** Records mock files -- verify both mock and real implementations satisfy the same TypeScript interface AND contract tests
-- [ ] **Cost tracking:** Reads `total_cost_usd` from result -- verify it deduplicates parallel tool call usage by message ID and handles both success and error results
-- [ ] **Crash recovery:** Checks for existing CONTEXT.md/PLAN.md -- verify it also checks git log for partial execution work AND captures session ID for query() resumption
-- [ ] **Budget enforcement:** Checks total before step -- verify per-step maxBudgetUsd is dynamically reduced as total approaches limit
-- [ ] **Docker smoke test:** Runs `docker compose up` -- verify it uses project-specific compose project name to avoid conflicts, and ALWAYS runs `docker compose down` in finally block
-- [ ] **Permission mode:** Sets `bypassPermissions` -- verify it also sets `allowDangerouslySkipPermissions: true` (required safety flag)
+- [ ] **Emulator startup:** Starts the emulator process — verify it also waits for `sys.boot_completed=1` AND package manager readiness before running any subsequent step
+- [ ] **Emulator teardown:** Has a cleanup call — verify it is in a `finally` block AND in a `process.on('exit')` handler AND scans for orphans from previous crashed runs
+- [ ] **`flutter test` verifier:** Parses JSON output — verify it filters non-JSON lines (Gradle output), reads `DoneEvent.success`, and checks for any `TestDoneEvent` with `result != "success"`
+- [ ] **`flutter analyze` verifier:** Checks exit code — verify it also parses the summary line for issue count and uses `--no-fatal-infos` flag
+- [ ] **Maestro UAT runner:** Runs `maestro test` and checks exit code — verify it also reads stdout for flow pass/fail counts and handles the `--format junit` regression
+- [ ] **`flutter run` process management:** Starts the app — verify it uses `spawn` (not `exec`), waits for "key commands" in stdout, stores the PID, and kills it in a `finally` block
+- [ ] **KVM pre-flight check:** Checks for `/dev/kvm` existence — verify it also checks read permissions (`access('/dev/kvm', fs.constants.R_OK)`) and gracefully skips emulator steps if absent
+- [ ] **Flutter startup lock:** Serializes Flutter CLI calls — verify no two `flutter` commands can run concurrently from Forge even across parallel verifiers
+- [ ] **CocoaPods pre-check (iOS):** Detects stale Pods — verify it compares `Pods/Manifest.lock` to `Podfile.lock` and runs `pod install` only when they differ, not unconditionally
+- [ ] **Emulator serial tracking:** Records the ADB serial — verify the serial is captured dynamically from `adb devices` output, not hardcoded to `emulator-5554`
 
 ## Recovery Strategies
 
@@ -344,48 +385,52 @@ When pitfalls occur despite prevention, how to recover.
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| State corruption from concurrent writes | LOW | Rebuild state from git history + phase checkpoint files; state is derived, not primary |
-| Budget overrun (10-20% over limit) | LOW | Accept the cost; fix the budget enforcement logic; no data loss |
-| Mock drift discovered in Wave 2 | MEDIUM | Run contract tests to identify specific drift points; fix mock OR real impl to match interface; re-run integration tests |
-| Verification false positive (shipped broken code) | MEDIUM | Add stricter verification checks; re-run spec compliance loop with enhanced verifiers; manual review of affected code |
-| Agent corrupted project files | HIGH | Use git to restore to last known-good commit; re-run affected phase; ensure `forge-state.json` is not checked into git repo being built |
-| Context window exhaustion mid-step | MEDIUM | Step is likely partially complete; resume with session ID if available; otherwise re-run with smaller step scope |
-| Crash with no state flush | MEDIUM | Reconstruct state from phase checkpoint files + git log; session IDs lost means steps cannot be resumed |
-| Circularity (model-generated tests all pass but code is wrong) | HIGH | Manual review needed; add holdout acceptance criteria; implement external validation (e.g., different model for verification) |
+| Flutter startup lock deadlock | LOW | Kill all `flutter` processes (`pkill -f flutter`), delete `~/.flutter/...lock` file, re-run |
+| Emulator resource leak (multiple zombies) | LOW | Run `adb devices | grep emulator | awk '{print $1}' | xargs -I{} adb -s {} emu kill`, then resume |
+| Gradle Java version mismatch | LOW-MEDIUM | Set `JAVA_HOME` to the correct JDK, run `flutter clean`, re-run build |
+| CocoaPods stale cache | LOW | Run `cd ios && pod repo update && pod install`, re-run iOS build |
+| Maestro animation flakiness (intermittent) | LOW | Retry the failed flows (they are inherently flaky); add `waitForAnimationToEnd` to the specific steps |
+| Headless emulator accessibility failure | MEDIUM | Switch to `-gpu swiftshader_indirect`, avoid kill/relaunch sequences, re-run flows |
+| `flutter run` zombie process blocks next run | LOW | Kill by stored PID or scan `ps aux | grep "flutter run"` and kill; delete stale emulator entry from state |
+| Maestro `--format junit` false failure | LOW | Re-run without `--format` flag, parse stdout directly |
 
 ## Pitfall-to-Phase Mapping
 
-How roadmap phases should address these pitfalls.
+How v1.1 roadmap phases should address these pitfalls.
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Process spawn overhead | Step Runner (Phase 2) | Benchmark: measure actual query() initialization time; assert step count is reasonable |
-| Circularity problem | Verifiers (Phase 3) | Intentionally introduce bugs in test fixtures; verify verifiers catch them |
-| State corruption | State Manager (Phase 1) | Stress test: simulate concurrent writes; verify state consistency |
-| Budget gap | Cost Controller (Phase 2) | Unit test: verify per-step budget reduces dynamically; simulate near-limit scenarios |
-| Mock drift | Mock Strategy (Phase 4) | Contract test infrastructure: verify mock and real share identical test suite |
-| Verification false positives | Verifiers (Phase 3) | "Verifier tests": craft intentionally broken code/tests; verify verifiers reject them |
-| bypassPermissions scope | Step Runner (Phase 2) | Integration test: verify verification steps cannot write files outside scope |
-| Crash recovery | State Manager (Phase 1) + Step Runner (Phase 2) | Kill process mid-phase; verify resume reconstructs correct state |
-| Context exhaustion | Step Runner (Phase 2) + Phase Runner (Phase 4) | Monitor token usage; assert steps stay below 80% of context window |
-| Spec vs SDK mismatch | POC / Phase 0 | Compile and run against real SDK before writing any production code |
+| Flutter startup lock | Phase 1: Flutter verifier infrastructure | Unit test: verify mutex prevents concurrent Flutter calls |
+| Emulator startup timing | Phase 1: Emulator lifecycle manager | Integration test: start emulator, assert `boot_completed=1` before proceeding |
+| Emulator resource leak | Phase 1: Emulator lifecycle manager | Test: kill Forge mid-emulator, verify cleanup runs on next start |
+| JSON contamination from Gradle | Phase 1: Flutter test verifier | Unit test: feed mixed Gradle+JSON output, verify correct parse |
+| Maestro animation flakiness | Phase 2: Mobile UAT / flow generation | Scenario test: run multi-screen flow, assert pass rate is deterministic |
+| KVM unavailability | Phase 1: Emulator pre-flight check | Unit test: mock no-KVM environment, verify graceful skip |
+| `dart analyze` exit code ambiguity | Phase 1: Flutter analyze verifier | Unit test: provide output with warnings, verify verifier detects them |
+| Gradle Java mismatch | Phase 1: Flutter build verifier | Unit test: simulate `flutter doctor` output with mismatch, verify error surface |
+| CocoaPods staleness | Phase 1: Flutter build verifier (iOS) | Integration test: stale Pods directory, verify pod install is triggered |
+| Maestro format flag regression | Phase 2: Mobile UAT result parser | Unit test: parse stdout for flow counts independent of exit code |
+| `flutter run` daemon model | Phase 2: Mobile app lifecycle | Integration test: verify spawn returns before app ready, app ready signal detected |
+| Headless window focus loss | Phase 1: Emulator config AND Phase 2: flow templates | Scenario test: run kill/relaunch flow headlessly, verify no accessibility errors |
 
 ## Sources
 
-- [Claude Agent SDK TypeScript Reference](https://platform.claude.com/docs/en/agent-sdk/typescript) -- Official API docs confirming Options interface, permission modes, cost tracking (HIGH confidence)
-- [Agent SDK Permissions](https://platform.claude.com/docs/en/agent-sdk/permissions) -- Official permission mode documentation, `allowDangerouslySkipPermissions` requirement (HIGH confidence)
-- [Agent SDK Cost Tracking](https://platform.claude.com/docs/en/agent-sdk/cost-tracking) -- Official cost tracking docs, `total_cost_usd`, deduplication requirements (HIGH confidence)
-- [SDK Issue #34: ~12s overhead per query()](https://github.com/anthropics/claude-agent-sdk-typescript/issues/34) -- Confirmed process spawn overhead, no daemon mode (HIGH confidence)
-- [SDK Issue #33: Daemon Mode Feature Request](https://github.com/anthropics/claude-agent-sdk-typescript/issues/33) -- Confirms hot process reuse not implemented (HIGH confidence)
-- [StrongDM Attractor](https://github.com/strongdm/attractor) -- Circularity problem, test gaming, holdout sets (HIGH confidence)
-- [Simon Willison on StrongDM Dark Factory](https://simonwillison.net/2026/Feb/7/software-factory/) -- Lessons learned from Level 4 autonomous coding (HIGH confidence)
-- [Docker Compose Port Conflicts](https://www.markcallen.com/preventing-port-conflicts-in-docker-compose-with-dynamic-ports/) -- Dynamic port allocation for test isolation (MEDIUM confidence)
-- [Node.js Race Conditions](https://nodejsdesignpatterns.com/blog/node-js-race-conditions/) -- File write race conditions in concurrent Node.js (HIGH confidence)
-- [API Mock Drift](https://dev.to/copyleftdev/title-when-swagger-lies-fixing-api-drift-before-it-breaks-you-ijo) -- Contract testing to prevent mock drift (MEDIUM confidence)
-- [Claude Code Issue #10388: Token Usage API](https://github.com/anthropics/claude-code/issues/10388) -- Token tracking infrastructure gaps (MEDIUM confidence)
-- [Agent Budget Guard MCP](https://earezki.com/ai-news/2026-03-02-i-built-an-mcp-server-so-my-ai-agent-can-track-its-own-spending/) -- Community pattern for agent cost tracking (LOW confidence)
-- [Claude Code Issue #20264: Restrictive permissions for subagents](https://github.com/anthropics/claude-code/issues/20264) -- Confirms subagent permission inheritance limitation (HIGH confidence)
+- [flutter/flutter#123873 — Gradle output contaminating JSON reporter](https://github.com/flutter/flutter/issues/123873) — Confirmed contamination and jq workaround (HIGH confidence)
+- [flutter/flutter#16423 — Flutter startup lock](https://github.com/flutter/flutter/issues/16423) — Confirmed global lock, sequential execution required (HIGH confidence)
+- [mobile-dev-inc/Maestro#1703 — Animation flakiness after navigation](https://github.com/mobile-dev-inc/maestro/issues/1703) — Confirmed, closed "not planned" (HIGH confidence)
+- [mobile-dev-inc/Maestro#2706 — `--format` flag causes false failures](https://github.com/mobile-dev-inc/maestro/issues/2706) — Confirmed regression in 2.0.x (HIGH confidence)
+- [mobile-dev-inc/Maestro#2750 — Headless CI app relaunch failure](https://github.com/mobile-dev-inc/maestro/issues/2750) — Open issue, Android-only in headless mode (HIGH confidence)
+- [Maestro CLI Commands and Options](https://docs.maestro.dev/maestro-cli/maestro-cli-commands-and-options) — Official format flags documentation (HIGH confidence)
+- [Android Emulator Hardware Acceleration](https://developer.android.com/studio/run/emulator-acceleration) — KVM/HAXM requirements, TCG fallback 8-12x slower (HIGH confidence)
+- [Run a Headless Android Device on Ubuntu](https://gist.github.com/nhtua/2d294f276dc1e110a7ac14d69c37904f) — `-no-window -gpu swiftshader_indirect` approach (MEDIUM confidence)
+- [GitHub Actions: Hardware accelerated Android virtualization](https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/) — Confirmed larger Linux runners support KVM (HIGH confidence)
+- [dart-lang/test JSON Reporter Protocol](https://github.com/dart-lang/test/blob/master/pkgs/test/doc/json_reporter.md) — Official event type reference (HIGH confidence)
+- [flutter/flutter#138713 — xcrun simctl spawn hang](https://github.com/flutter/flutter/issues/138713) — iOS simulator hang after test runs (MEDIUM confidence)
+- [flutter/flutter#168896 — Java/Gradle version mismatch](https://github.com/flutter/flutter/issues/168896) — Confirmed Java home context mismatch in CI (HIGH confidence)
+- [CocoaPods specs repository out of date](https://www.kindacode.com/article/flutter-error-cocoapodss-specs-repository-is-too-out-of-date) — CocoaPods cache staleness confirmed (MEDIUM confidence)
+- [Bitrise Android Emulator Timeout](https://discuss.bitrise.io/t/android-emulator-timeout-after-5400-seconds/9208) — Real-world 5400s timeout in CI (HIGH confidence)
+- [Dart analyze documentation](https://dart.dev/tools/dart-analyze) — Exit code and severity flag behavior (HIGH confidence)
 
 ---
-*Pitfalls research for: Autonomous AI Coding Orchestrator (Forge)*
-*Researched: 2026-03-05*
+*Pitfalls research for: Flutter mobile verification and UAT in Forge v1.1*
+*Researched: 2026-03-28*

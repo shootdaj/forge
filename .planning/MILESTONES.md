@@ -3,7 +3,7 @@
 ## v1.0 MVP (Shipped: 2026-03-08)
 
 **Phases completed:** 8 phases, 20 plans
-**Stats:** 25,933 LOC TypeScript, 697 tests, 86 commits, 200 files
+**Stats:** 29,132 LOC TypeScript, 816 tests, 97 commits, 218 files
 
 **Key accomplishments:**
 1. Agent SDK query wrapper with raw async iterator, inactivity timeout, and cost extraction

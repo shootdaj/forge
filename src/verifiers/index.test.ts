@@ -127,7 +127,7 @@ describe("Verifier Registry", () => {
   });
 
   describe("verifierRegistry", () => {
-    it("maps all 8 verifier names to functions", () => {
+    it("maps all 12 verifier names to functions", () => {
       const expectedNames = [
         "files",
         "tests",
@@ -137,6 +137,10 @@ describe("Verifier Registry", () => {
         "observability",
         "docker",
         "deployment",
+        "flutter-pub-get",
+        "flutter-analyze",
+        "flutter-test",
+        "flutter-build",
       ];
 
       for (const name of expectedNames) {
@@ -144,7 +148,7 @@ describe("Verifier Registry", () => {
         expect(typeof verifierRegistry[name]).toBe("function");
       }
 
-      expect(Object.keys(verifierRegistry)).toHaveLength(8);
+      expect(Object.keys(verifierRegistry)).toHaveLength(12);
     });
   });
 

@@ -129,17 +129,59 @@ export function extractUserWorkflows(
 }
 
 /**
+ * Build mobile-specific safety guardrails.
+ * Appended to the general safety prompt when appType is "flutter".
+ *
+ * Requirement: SAF-01
+ *
+ * @returns Mobile safety guardrail text
+ */
+export function buildMobileSafetyBlock(): string {
+  return [
+    "",
+    "## Mobile Safety Guardrails",
+    "",
+    "CRITICAL — These rules apply to ALL Flutter/mobile testing:",
+    "",
+    "### Permissions",
+    "- Do NOT request real device permissions (camera, microphone, location, contacts, photos)",
+    "- All permission-dependent features MUST be mocked or stubbed in tests",
+    "- Use permission_handler mock mode for testing permission flows",
+    "",
+    "### Firebase",
+    "- Use ONLY test/demo Firebase projects (project IDs containing 'test', 'demo', 'staging', or 'dev')",
+    "- NEVER use production Firebase project IDs",
+    "- NEVER use real FCM tokens for push notification testing",
+    "- Use Firebase Local Emulator Suite when testing Firebase features",
+    "",
+    "### Credentials & Signing",
+    "- Use ONLY the debug keystore for Android builds (default debug.keystore)",
+    "- NEVER reference or use production signing keys, keystores, or provisioning profiles",
+    "- NEVER hardcode API keys, secrets, or tokens in Dart source files",
+    "- Store all secrets in dart-define or .env files excluded from version control",
+    "",
+    "### Network & Data",
+    "- All network calls in tests MUST target localhost, test servers, or mocked endpoints",
+    "- NEVER make real API calls to production services during testing",
+    "- Use test/sandbox payment processing (Stripe test keys, etc.)",
+    "",
+  ].join("\n");
+}
+
+/**
  * Build the safety guardrail portion of UAT prompts.
  *
  * Lists constraints that prevent production credential usage,
  * enforce test databases, and require local SMTP for email testing.
+ * Includes mobile-specific guardrails when appType is "flutter".
  *
- * Requirement: UAT-04
+ * Requirement: UAT-04, SAF-01
  *
  * @param safetyConfig - Safety configuration options
+ * @param appType - Optional app type to include type-specific guardrails
  * @returns Safety prompt string to append to UAT prompts
  */
-export function buildSafetyPrompt(safetyConfig: SafetyConfig): string {
+export function buildSafetyPrompt(safetyConfig: SafetyConfig, appType?: AppType): string {
   const lines: string[] = [
     "## Safety Guardrails",
     "",
@@ -175,7 +217,14 @@ export function buildSafetyPrompt(safetyConfig: SafetyConfig): string {
     "- All test data must be self-contained and cleaned up after the test run.",
   );
 
-  return lines.join("\n");
+  let prompt = lines.join("\n");
+
+  // Append mobile-specific guardrails for Flutter projects
+  if (appType === "flutter") {
+    prompt += buildMobileSafetyBlock();
+  }
+
+  return prompt;
 }
 
 /**

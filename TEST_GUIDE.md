@@ -121,6 +121,18 @@ npx vitest run
 | UAT-04: safety guardrails | `TestBuildSafetyPrompt_SandboxCredentials`, `TestBuildSafetyPrompt_LocalSMTP`, `TestBuildSafetyPrompt_TestDB`, `TestBuildSafetyPrompt_MockOAuth` | `TestIntegration_UAT_SafetyEnforcement` | `TestScenario_UAT_SafetyGuardrails` | **Covered** |
 | UAT-05: failure triggers gap closure retry | `TestRunUATGapClosure_ProducesFixPlan`, `TestRunUAT_RetriesOnFailure`, `TestRunUAT_MaxRetriesExhausted` | `TestIntegration_UAT_GapClosureLoop` | `TestScenario_UAT_FailureRetry` | **Covered** |
 | UAT-06: UAT is final gate | `TestRunUAT_ReturnsPass`, `TestRunUAT_ReturnsFail`, `TestRunUAT_ReturnsStuck`, `TestRunUAT_FinalGateResult` | `TestIntegration_UAT_FinalGateStatus` | `TestScenario_UAT_FinalGate`, `TestScenario_UAT_FullPipelineWithUAT` | **Covered** |
+| DET-01: Flutter detection via pubspec.yaml | `TestDetectAppType_ReturnsFlutter_WhenStackIsFlutter`, `TestDetectAppType_ReturnsFlutter_WhenStackIsDart` | `TestRegistry_ContainsAllFlutterVerifiers` | `TestFlutterDetectionScenario_DetectsFlutterViaPubspec`, `TestFlutterDetectionScenario_PubspecTakesPriority` | **Covered** |
+| DET-02: AppType includes "flutter" | `TestDetectAppType_ReturnsFlutter_WhenStackIsFlutter`, `TestBuildUATPrompt_FlutterType_IncludesMaestro` | `TestRegistry_ContainsAllFlutterVerifiers` | `TestFlutterDetectionScenario_NonFlutterRoutesUnchanged` | **Covered** |
+| FV-01: flutter pub get verifier | `TestFlutterPubGet_PassesOnSuccess`, `TestFlutterPubGet_FailsOnNonZeroExit`, `TestFlutterPubGet_Uses120sTimeout` | `TestFlutterVerifierIntegration_RegistryContainsAll` | `TestFlutterDetectionScenario_DetectsFlutterViaPubspec` | **Covered** |
+| FV-02: flutter analyze verifier | `TestFlutterAnalyze_PassesOnCleanAnalysis`, `TestFlutterAnalyze_FailsOnErrors`, `TestFlutterAnalyze_FailsOnWarnings`, `TestParseMachineOutput_CountsAllSeverities` | `TestEnabledVerifiers_IncludesFlutterAnalyze_WhenMobileAnalyzeEnabled` | `TestFlutterDetectionScenario_ConfigBackwardCompatible` | **Covered** |
+| FV-03: flutter test verifier with NDJSON | `TestFlutterTest_PassesOnAllSuccess`, `TestFlutterTest_FailsOnTestFailure`, `TestFlutterTest_FiltersGradleContamination`, `TestParseNdjson_HandlesValidOutput`, `TestParseNdjson_FiltersNonJsonLines`, `TestParseNdjson_ExtractsFailedTestNames` | `TestFlutterVerifierIntegration_RegistryContainsAll` | `TestFlutterDetectionScenario_DetectsFlutterViaPubspec` | **Covered** |
+| FV-04: flutter build verifier with APK check | `TestFlutterBuild_PassesWhenApkExists`, `TestFlutterBuild_FailsWhenBuildFails`, `TestFlutterBuild_FailsWhenApkMissing`, `TestFlutterBuild_UsesFlavorFlag`, `TestFlutterBuild_Uses300sTimeout` | `TestEnabledVerifiers_IncludesFlutterBuild_WhenMobileBuildEnabled` | `TestFlutterDetectionScenario_ConfigBackwardCompatible` | **Covered** |
+| FV-05: all Flutter verifiers self-skip | `TestFlutterPubGet_SkipsWhenNoPubspec`, `TestFlutterAnalyze_SkipsWhenNoPubspec`, `TestFlutterTest_SkipsWhenNoPubspec`, `TestFlutterBuild_SkipsWhenNoPubspec` | `TestRunVerifiers_FlutterVerifiersSkipWhenNoPubspec` | `TestFlutterDetectionScenario_NonFlutterRoutesUnchanged` | **Covered** |
+| FV-06: Flutter startup lock mutex | `TestFlutterLock_SerializesExecution`, `TestFlutterLock_ReleasesOnError`, `TestFlutterLock_SingleTaskRunsImmediately`, `TestFlutterLock_ThreeTasksSerialize` | `TestFlutterVerifierIntegration_RegistryContainsAll` | `TestFlutterDetectionScenario_DetectsFlutterViaPubspec` | **Covered** |
+| CFG-04: flutter config fields | `TestConfigSchema_FlutterFields_DefaultValues`, `TestConfigSchema_FlutterFields_CustomValues` | `TestEnabledVerifiers_BothFlutterAndStandardCanBeEnabled` | `TestFlutterDetectionScenario_ConfigBackwardCompatible`, `TestFlutterDetectionScenario_ConfigFieldsSettable` | **Covered** |
+| CFG-05: mobile verification toggles | `TestConfigSchema_FlutterFields_DefaultValues`, `TestConfigSchema_FlutterFields_CustomValues` | `TestEnabledVerifiers_ExcludesFlutterVerifiers_ByDefault`, `TestEnabledVerifiers_IncludesFlutterBuild_WhenMobileBuildEnabled` | `TestFlutterDetectionScenario_ConfigBackwardCompatible` | **Covered** |
+| SAF-01: mobile safety guardrails | `TestMobileSafetyBlock_IncludesPermissionRestrictions`, `TestMobileSafetyBlock_IncludesFirebaseSandbox`, `TestMobileSafetyBlock_IncludesSigningSafety`, `TestMobileSafetyBlock_IncludesNetworkSafety`, `TestBuildSafetyPrompt_IncludesMobileBlock_ForFlutter` | `TestFlutterVerifierIntegration_RegistryContainsAll` | `TestFlutterDetectionScenario_SafetyGuardrailsComprehensive` | **Covered** |
+| SAF-02: mobile deployment-awareness | `TestPrompts_MobileContext_IncludesSigningConfig`, `TestPrompts_MobileContext_IncludesBundleId`, `TestPrompts_MobileContext_IncludesSemanticIdentifiers`, `TestPrompts_MobileContext_IncludesPlatformBuilds`, `TestPrompts_MobileContext_IncludesPlatformConstraints` | `TestFlutterVerifierIntegration_RegistryContainsAll` | `TestFlutterDetectionScenario_MobileContextPrompt` | **Covered** |
 
 ## Phase Coverage Log
 
@@ -213,3 +225,14 @@ Requirements covered: CLI-01, CLI-02, CLI-03, CLI-04, CLI-05, COST-05, GIT-01, G
 | **Total** | **173** | **173** | **0** |
 
 Requirements covered: REQ-01, REQ-02, REQ-03, REQ-04, DOC-01, DOC-02, DOC-03, DOC-04, UAT-01, UAT-02, UAT-03, UAT-04, UAT-05, UAT-06 (all 14/14)
+
+### Phase 9: Flutter Verifier Infrastructure (2026-03-28)
+
+| Tier | Tests | Passed | Failed |
+|---|---|---|---|
+| Unit | 59 | 59 | 0 |
+| Integration | 7 | 7 | 0 |
+| Scenario | 14 | 14 | 0 |
+| **Total** | **80** | **80** | **0** |
+
+Requirements covered: DET-01, DET-02, FV-01, FV-02, FV-03, FV-04, FV-05, FV-06, CFG-04, CFG-05, SAF-01, SAF-02 (all 12/12)

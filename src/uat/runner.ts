@@ -9,6 +9,7 @@
  */
 
 import * as nodeFs from "node:fs";
+import * as path from "node:path";
 import { execSync } from "node:child_process";
 import type { ForgeConfig } from "../config/schema.js";
 import type {
@@ -26,15 +27,30 @@ import { BudgetExceededError } from "../step-runner/types.js";
 /**
  * Detect the application type from the project configuration.
  *
- * Inspects config.testing.stack and maps it to one of: "web", "api", "cli".
+ * Checks for Flutter projects first (via pubspec.yaml or stack config),
+ * then falls back to existing web/api/cli detection.
  *
- * Requirement: UAT-02
+ * Requirement: UAT-02, DET-01, DET-02
  *
  * @param config - Project configuration
+ * @param cwd - Optional project root directory for filesystem-based detection
  * @returns Detected app type
  */
-export function detectAppType(config: ForgeConfig): AppType {
+export function detectAppType(config: ForgeConfig, cwd?: string): AppType {
+  // Flutter detection: pubspec.yaml in project root (highest priority)
+  if (cwd) {
+    const pubspecPath = path.resolve(cwd, "pubspec.yaml");
+    if (nodeFs.existsSync(pubspecPath)) {
+      return "flutter";
+    }
+  }
+
   const stack = config.testing.stack.toLowerCase();
+
+  // Explicit Flutter/Dart stack configuration
+  if (stack === "flutter" || stack === "dart") {
+    return "flutter";
+  }
 
   // Web application stacks
   const webStacks = ["react", "next", "nextjs", "vue", "angular", "svelte", "remix", "gatsby", "nuxt"];
@@ -225,6 +241,20 @@ export function buildUATPrompt(
       );
       lines.push(
         "Verify file system side effects (created files, modified files) as appropriate.",
+      );
+      break;
+    case "flutter":
+      lines.push(
+        "This is a Flutter mobile app. Use Maestro CLI to test this workflow on the emulator.",
+      );
+      lines.push(
+        "Target widgets by semantic identifier (ValueKey), not coordinates.",
+      );
+      lines.push(
+        "Include waitForAnimationToEnd after navigation to prevent flakiness.",
+      );
+      lines.push(
+        "Write Maestro flow YAML files to the .maestro/ directory.",
       );
       break;
   }

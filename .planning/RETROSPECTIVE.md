@@ -30,9 +30,9 @@
 
 | Metric | Value |
 |--------|-------|
-| LOC | 25,933 |
-| Tests | 697 |
-| Commits | 86 |
-| Files | 200 |
+| LOC | 29,132 |
+| Tests | 816 |
+| Commits | 97 |
+| Files | 218 |
 | E2E: Todo CLI | 13 min, $3.12 |
 | E2E: GitHub Wrapped | 24 min, $5.46 |

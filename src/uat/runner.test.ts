@@ -35,6 +35,7 @@ import {
 import {
   extractUserWorkflows,
   buildSafetyPrompt,
+  buildMobileSafetyBlock,
   runUATGapClosure,
 } from "./workflows.js";
 
@@ -57,6 +58,9 @@ function createTestConfig(overrides: Partial<ForgeConfig> = {}): ForgeConfig {
       integrationCommand: "npm run test:integration",
       scenarioCommand: "npm run test:e2e",
       dockerComposeFile: "docker-compose.test.yml",
+      flutterAvdName: "",
+      flutterBuildFlavor: "",
+      maestroFlowsDir: ".maestro",
     },
     verification: {
       files: true,
@@ -67,6 +71,8 @@ function createTestConfig(overrides: Partial<ForgeConfig> = {}): ForgeConfig {
       testCoverageCheck: true,
       observabilityCheck: false,
       deployment: false,
+      mobileBuild: false,
+      mobileAnalyze: false,
     },
     notion: {
       parentPageId: "",
@@ -296,6 +302,28 @@ describe("detectAppType", () => {
     });
     expect(detectAppType(config)).toBe("cli");
   });
+
+  it("TestDetectAppType_ReturnsFlutter_WhenStackIsFlutter", () => {
+    const config = createTestConfig({
+      testing: { ...createTestConfig().testing, stack: "flutter" },
+    });
+    expect(detectAppType(config)).toBe("flutter");
+  });
+
+  it("TestDetectAppType_ReturnsFlutter_WhenStackIsDart", () => {
+    const config = createTestConfig({
+      testing: { ...createTestConfig().testing, stack: "dart" },
+    });
+    expect(detectAppType(config)).toBe("flutter");
+  });
+
+  it("TestDetectAppType_ReturnsWeb_WhenNoPubspecAndWebStack", () => {
+    const config = createTestConfig({
+      testing: { ...createTestConfig().testing, stack: "react" },
+    });
+    // Without cwd, no pubspec check — should detect as web
+    expect(detectAppType(config)).toBe("web");
+  });
 });
 
 describe("extractUserWorkflows", () => {
@@ -382,6 +410,50 @@ describe("buildSafetyPrompt", () => {
   it("TestBuildSafetyPrompt_IncludesOAuthGuardrail", () => {
     const prompt = buildSafetyPrompt(safetyConfig);
     expect(prompt).toContain("mock providers");
+  });
+
+  it("TestBuildSafetyPrompt_IncludesMobileBlock_ForFlutter", () => {
+    const prompt = buildSafetyPrompt(safetyConfig, "flutter");
+    expect(prompt).toContain("Mobile Safety Guardrails");
+    expect(prompt).toContain("Do NOT request real device permissions");
+    expect(prompt).toContain("debug keystore");
+  });
+
+  it("TestBuildSafetyPrompt_ExcludesMobileBlock_ForWeb", () => {
+    const prompt = buildSafetyPrompt(safetyConfig, "web");
+    expect(prompt).not.toContain("Mobile Safety Guardrails");
+  });
+
+  it("TestBuildSafetyPrompt_ExcludesMobileBlock_WhenNoAppType", () => {
+    const prompt = buildSafetyPrompt(safetyConfig);
+    expect(prompt).not.toContain("Mobile Safety Guardrails");
+  });
+});
+
+describe("buildMobileSafetyBlock", () => {
+  it("TestMobileSafetyBlock_IncludesPermissionRestrictions", () => {
+    const block = buildMobileSafetyBlock();
+    expect(block).toContain("Do NOT request real device permissions");
+    expect(block).toContain("camera");
+    expect(block).toContain("location");
+  });
+
+  it("TestMobileSafetyBlock_IncludesFirebaseSandbox", () => {
+    const block = buildMobileSafetyBlock();
+    expect(block).toContain("test/demo Firebase projects");
+    expect(block).toContain("NEVER use production Firebase");
+  });
+
+  it("TestMobileSafetyBlock_IncludesSigningSafety", () => {
+    const block = buildMobileSafetyBlock();
+    expect(block).toContain("debug keystore");
+    expect(block).toContain("NEVER reference or use production signing keys");
+  });
+
+  it("TestMobileSafetyBlock_IncludesNetworkSafety", () => {
+    const block = buildMobileSafetyBlock();
+    expect(block).toContain("localhost");
+    expect(block).toContain("NEVER make real API calls");
   });
 });
 
@@ -524,6 +596,13 @@ describe("buildUATPrompt", () => {
     expect(prompt).toContain(".forge/uat/UAT-R1-01.json");
     expect(prompt).toContain("stepsPassed");
     expect(prompt).toContain("stepsFailed");
+  });
+
+  it("TestBuildUATPrompt_FlutterType_IncludesMaestro", () => {
+    const prompt = buildUATPrompt(workflow, "flutter", safetyPrompt);
+    expect(prompt).toContain("Maestro");
+    expect(prompt).toContain("semantic identifier");
+    expect(prompt).toContain("waitForAnimationToEnd");
   });
 });
 

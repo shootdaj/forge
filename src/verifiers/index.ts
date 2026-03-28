@@ -22,6 +22,10 @@ import { coverageVerifier } from "./coverage.js";
 import { observabilityVerifier } from "./observability.js";
 import { dockerVerifier } from "./docker.js";
 import { deploymentVerifier } from "./deployment.js";
+import { flutterPubGetVerifier } from "./flutter-pub-get.js";
+import { flutterAnalyzeVerifier } from "./flutter-analyze.js";
+import { flutterTestVerifier } from "./flutter-test.js";
+import { flutterBuildVerifier } from "./flutter-build.js";
 
 // Re-export types and helpers for consumers
 export type {
@@ -41,6 +45,11 @@ export { coverageVerifier } from "./coverage.js";
 export { observabilityVerifier } from "./observability.js";
 export { dockerVerifier } from "./docker.js";
 export { deploymentVerifier } from "./deployment.js";
+export { flutterPubGetVerifier } from "./flutter-pub-get.js";
+export { flutterAnalyzeVerifier } from "./flutter-analyze.js";
+export { flutterTestVerifier } from "./flutter-test.js";
+export { flutterBuildVerifier } from "./flutter-build.js";
+export { withFlutterLock } from "./flutter-lock.js";
 
 /**
  * Registry mapping verifier names to their implementation functions.
@@ -55,6 +64,10 @@ export const verifierRegistry: Record<string, Verifier> = {
   observability: observabilityVerifier,
   docker: dockerVerifier,
   deployment: deploymentVerifier,
+  "flutter-pub-get": flutterPubGetVerifier,
+  "flutter-analyze": flutterAnalyzeVerifier,
+  "flutter-test": flutterTestVerifier,
+  "flutter-build": flutterBuildVerifier,
 };
 
 /**
@@ -80,6 +93,8 @@ const configToRegistryMap: Record<string, string> = {
   observabilityCheck: "observability",
   dockerSmoke: "docker",
   deployment: "deployment",
+  mobileBuild: "flutter-build",
+  mobileAnalyze: "flutter-analyze",
 };
 
 /**
