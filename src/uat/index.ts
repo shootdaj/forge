@@ -64,3 +64,44 @@ export {
 
 // KVM pre-flight
 export { checkKvmAvailability, assertKvmAvailable } from "./kvm-check.js";
+
+// Flutter run daemon types and errors
+export type {
+  FlutterRunHandle,
+  FlutterRunOptions,
+  FlutterRunWaitOptions,
+} from "./flutter-run-types.js";
+export {
+  FlutterRunError,
+  FlutterRunReadyTimeoutError,
+  FlutterRunStartError,
+} from "./flutter-run-types.js";
+
+// Flutter run daemon lifecycle
+export {
+  startFlutterRun,
+  waitForFlutterRunReady,
+  stopFlutterRun,
+  registerFlutterRunCleanup,
+  withFlutterRun,
+} from "./flutter-run.js";
+
+// Maestro types and errors
+export type {
+  MaestroFlowResult,
+  MaestroResult,
+  MaestroTestOptions,
+} from "./maestro-types.js";
+export {
+  MaestroError,
+  MaestroTestError,
+} from "./maestro-types.js";
+
+// Maestro test execution
+export {
+  runMaestroTest,
+  parseMaestroJUnit,
+  reconcileResult,
+  executeMaestroUAT,
+  maestroResultToWorkflowResults,
+} from "./maestro.js";

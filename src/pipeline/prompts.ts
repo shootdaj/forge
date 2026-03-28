@@ -345,3 +345,37 @@ export function buildMobileContextPrompt(): string {
     "",
   ].join("\n");
 }
+
+/**
+ * Build Maestro-aware context for Flutter app build phases.
+ * Instructs the agent to generate Maestro-friendly widgets from the start.
+ *
+ * Requirement: MAE-05
+ *
+ * @returns Maestro readiness context string
+ */
+export function buildMaestroContextBlock(): string {
+  return [
+    "",
+    "## Maestro UAT Readiness",
+    "",
+    "This Flutter app will be tested with Maestro CLI. To ensure testability:",
+    "",
+    "### Widget Keys (MANDATORY)",
+    "Add `Key(ValueKey('descriptive-id'))` to ALL interactive widgets:",
+    "- Buttons: `Key(ValueKey('login-button'))`, `Key(ValueKey('submit-form'))`",
+    "- Text fields: `Key(ValueKey('email-input'))`, `Key(ValueKey('search-field'))`",
+    "- List items: `Key(ValueKey('item-${item.id}'))` or `Key(ValueKey('todo-${index}'))`",
+    "- Navigation targets: `Key(ValueKey('home-tab'))`, `Key(ValueKey('settings-screen'))`",
+    "",
+    "### Animation Handling",
+    "- Use explicit `AnimationController` with defined duration for all transitions",
+    "- Avoid implicit animations that complete at unpredictable times",
+    "- Navigation transitions should complete within 500ms",
+    "",
+    "### App Structure",
+    "- Use `MaterialApp` or `CupertinoApp` with named routes",
+    "- Each screen should have a root widget with a `ValueKey` for Maestro to verify navigation",
+    "",
+  ].join("\n");
+}
