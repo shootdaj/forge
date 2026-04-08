@@ -219,26 +219,32 @@ export function createCli(): Command {
 
         // Gather requirements using Agent SDK
         let gatherResult: GatherResult | undefined;
-        try {
-          gatherResult = await gatherRequirements(config, {
-            executeQueryFn: executeQuery,
-          });
-          // Write REQUIREMENTS.md to project directory
-          fs.writeFileSync(
-            "REQUIREMENTS.md",
-            gatherResult.formattedDoc,
-            "utf-8",
-          );
-          const categoryCount = new Set(
-            gatherResult.requirements.map((r) => r.category),
-          ).size;
-          console.log(
-            `Requirements gathered: ${gatherResult.requirements.length} requirements across ${categoryCount} categories.`,
-          );
-        } catch (reqErr) {
-          console.warn(
-            `Requirements gathering failed: ${reqErr instanceof Error ? reqErr.message : String(reqErr)}. You can re-run with \`forge init\`.`,
-          );
+        if (fs.existsSync("REQUIREMENTS.md")) {
+          console.log("[forge] REQUIREMENTS.md already exists — skipping requirements gathering.");
+        } else if (!process.stdin.isTTY) {
+          console.log("[forge] Non-interactive mode — skipping requirements gathering.");
+        } else {
+          try {
+            gatherResult = await gatherRequirements(config, {
+              executeQueryFn: executeQuery,
+            });
+            // Write REQUIREMENTS.md to project directory
+            fs.writeFileSync(
+              "REQUIREMENTS.md",
+              gatherResult.formattedDoc,
+              "utf-8",
+            );
+            const categoryCount = new Set(
+              gatherResult.requirements.map((r) => r.category),
+            ).size;
+            console.log(
+              `Requirements gathered: ${gatherResult.requirements.length} requirements across ${categoryCount} categories.`,
+            );
+          } catch (reqErr) {
+            console.warn(
+              `Requirements gathering failed: ${reqErr instanceof Error ? reqErr.message : String(reqErr)}. You can re-run with \`forge init\`.`,
+            );
+          }
         }
 
         // Design selection for GUI apps
@@ -246,7 +252,7 @@ export function createCli(): Command {
           ? fs.readFileSync("REQUIREMENTS.md", "utf-8")
           : "";
         const isGui = config.frontend?.hasGui || detectGuiApp(reqContent2);
-        if (isGui && config.frontend?.designInteractive !== false) {
+        if (isGui && config.frontend?.designInteractive !== false && process.stdin.isTTY) {
           try {
             await runDesignSelection(config, reqContent2, {
               executeQueryFn: executeQuery,

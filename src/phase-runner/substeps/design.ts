@@ -50,6 +50,12 @@ export async function runDesignSelection(
     return true;
   }
 
+  // Guard against non-interactive environments — readline would hang
+  if (!process.stdin.isTTY) {
+    console.log("[forge] Non-interactive mode — skipping design selection.");
+    return false;
+  }
+
   // Ask user if they want to provide design input
   console.log("");
   console.log("=".repeat(60));
