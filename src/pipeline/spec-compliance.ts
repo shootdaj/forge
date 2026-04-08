@@ -461,47 +461,30 @@ export async function runIncrementalComplianceLoop(
       }
     }
 
-    // Record gap count for this round
-    gapHistory.push(gaps.length);
-
-    // Update state with round results
-    const verified = passingSet.length;
-    try {
-      await ctx.stateManager.update((state) => ({
-        ...state,
-        specCompliance: {
-          ...state.specCompliance,
-          gapHistory: [...gapHistory],
-          verified,
-          roundsCompleted: round,
-        },
-        remainingGaps: gaps.map((g) => g.id),
-      }));
-    } catch (err) {
-      console.warn(`[forge] Warning: spec compliance round ${round} state update failed:`, err);
-    }
-
-    // All requirements pass
+    // All requirements pass — no gaps to fix
     if (gaps.length === 0) {
+      gapHistory.push(0);
+      // Update state
+      try {
+        await ctx.stateManager.update((state) => ({
+          ...state,
+          specCompliance: {
+            ...state.specCompliance,
+            gapHistory: [...gapHistory],
+            verified: passingSet.length,
+            roundsCompleted: round,
+          },
+          remainingGaps: [],
+        }));
+      } catch (err) {
+        console.warn(`[forge] Warning: spec compliance round ${round} state update failed:`, err);
+      }
       return {
         converged: true,
         roundsCompleted: round,
         gapHistory,
         remainingGaps: [],
       };
-    }
-
-    // Check convergence (skip for first round — always proceed)
-    if (round > 1) {
-      const convergence = checkConvergence(gapHistory);
-      if (!convergence.converging) {
-        return {
-          converged: false,
-          roundsCompleted: round,
-          gapHistory,
-          remainingGaps: gaps.map((g) => g.id),
-        };
-      }
     }
 
     // Fix each gap individually with commit/revert
@@ -598,11 +581,36 @@ export async function runIncrementalComplianceLoop(
       currentPassing.push(gap.id);
     }
 
-    // Update gap count after this round's incremental fixes
-    // Override the last entry in gapHistory with actual remaining gaps
-    const remainingGapCount = gaps.length - (gaps.length - deferredGaps.length) + deferredGaps.length;
-    // Simpler: the remaining gaps are just the deferred ones
-    gapHistory[gapHistory.length - 1] = deferredGaps.length;
+    // Record final gap count after incremental fixes
+    gapHistory.push(deferredGaps.length);
+
+    // Check convergence AFTER incremental fixes (skip for first round — always proceed)
+    if (round > 1) {
+      const convergence = checkConvergence(gapHistory);
+      if (!convergence.converging) {
+        // Update state before returning
+        try {
+          await ctx.stateManager.update((state) => ({
+            ...state,
+            specCompliance: {
+              ...state.specCompliance,
+              gapHistory: [...gapHistory],
+              verified: currentPassing.length,
+              roundsCompleted: round,
+            },
+            remainingGaps: deferredGaps.map((g) => g.id),
+          }));
+        } catch (err) {
+          console.warn(`[forge] Warning: spec compliance round ${round} state update failed:`, err);
+        }
+        return {
+          converged: false,
+          roundsCompleted: round,
+          gapHistory,
+          remainingGaps: deferredGaps.map((g) => g.id),
+        };
+      }
+    }
 
     // If all gaps were fixed this round
     if (deferredGaps.length === 0) {
