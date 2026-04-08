@@ -104,5 +104,34 @@ None -- discussion stayed within phase scope.
 
 ---
 
+<testing>
+## Testing Requirements
+
+Every plan MUST include tests at all three tiers:
+
+### Unit Tests
+- Watchdog timer logic: verify heartbeat fires at correct intervals
+- Watchdog timer logic: verify timeout fires after configured inactivity period
+- Config schema: verify new watchdog fields parse with defaults
+- State schema: verify lastHeartbeat field serialization/deserialization
+- SDKErrorCategory: verify "inactivity_timeout" is handled correctly
+- Timeout detection: verify inactivity is based on message activity, not wall clock
+
+### Integration Tests
+- runStep with watchdog: mock executeQuery to hang, verify timeout triggers and step retries
+- runStep with watchdog: mock executeQuery to hang twice then succeed, verify retry count
+- runStep with watchdog: mock executeQuery to hang past max retries, verify step marked failed
+- Heartbeat output: verify heartbeat lines emitted to stdout at correct intervals during simulated inactivity
+- State update: verify last_heartbeat written to forge-state.json during watchdog activity
+- AbortController: verify stuck session is properly aborted on timeout
+
+### Scenario Tests
+- Full pipeline flow: step times out, retries, succeeds on retry -- pipeline continues
+- Full pipeline flow: step exhausts retries, marked failed -- pipeline continues to next step
+- Spec compliance: timeout error during gap fix defers gracefully
+- All existing tests still pass (regression check)
+
+</testing>
+
 *Phase: 15-session-watchdog*
 *Context gathered: 2026-04-08*
