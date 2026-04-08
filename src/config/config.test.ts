@@ -360,6 +360,53 @@ describe("Config Module", () => {
     });
   });
 
+  describe("TestConfig_WatchdogDefaults", () => {
+    it("provides default values for watchdog config fields", () => {
+      const config = loadConfig(tempDir); // No config file = all defaults
+      expect(config.watchdog.inactivityTimeoutSeconds).toBe(120);
+      expect(config.watchdog.heartbeatIntervalSeconds).toBe(30);
+      expect(config.watchdog.maxRetries).toBe(2);
+    });
+  });
+
+  describe("TestConfig_WatchdogCustomValues", () => {
+    it("accepts custom watchdog config values", () => {
+      fs.writeFileSync(
+        path.join(tempDir, CONFIG_FILE_NAME),
+        JSON.stringify({
+          watchdog: {
+            inactivity_timeout_seconds: 60,
+            heartbeat_interval_seconds: 10,
+            max_retries: 5,
+          },
+        }),
+      );
+
+      const config = loadConfig(tempDir);
+      expect(config.watchdog.inactivityTimeoutSeconds).toBe(60);
+      expect(config.watchdog.heartbeatIntervalSeconds).toBe(10);
+      expect(config.watchdog.maxRetries).toBe(5);
+    });
+  });
+
+  describe("TestConfig_WatchdogPartialOverride", () => {
+    it("partial watchdog config merges with defaults", () => {
+      fs.writeFileSync(
+        path.join(tempDir, CONFIG_FILE_NAME),
+        JSON.stringify({
+          watchdog: {
+            inactivity_timeout_seconds: 60,
+          },
+        }),
+      );
+
+      const config = loadConfig(tempDir);
+      expect(config.watchdog.inactivityTimeoutSeconds).toBe(60);
+      expect(config.watchdog.heartbeatIntervalSeconds).toBe(30); // default
+      expect(config.watchdog.maxRetries).toBe(2); // default
+    });
+  });
+
   describe("TestLoadConfig_CamelCaseMapping_CFG02", () => {
     it("CFG-02: snake_case JSON keys are mapped to camelCase TypeScript properties", () => {
       fs.writeFileSync(

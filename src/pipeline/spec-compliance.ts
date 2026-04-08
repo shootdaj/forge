@@ -502,7 +502,7 @@ export async function runIncrementalComplianceLoop(
       }
 
       // Fix the gap in its own SDK session
-      await runStep(
+      const fixResult = await runStep(
         `fix-gap-incremental-${gap.id}-round-${round}`,
         {
           prompt: buildIncrementalGapFixPrompt(
@@ -517,6 +517,20 @@ export async function runIncrementalComplianceLoop(
         ctx.stepRunnerContext,
         ctx.costController,
       );
+
+      // Handle watchdog timeout — defer gracefully
+      if (fixResult.status === "timed_out") {
+        console.log(`[compliance] Gap fix for ${gap.id} timed out — deferring`);
+        if (restorePoint) {
+          try {
+            execGitCommand(`git reset --hard ${restorePoint}`, ctx);
+          } catch {
+            console.warn(`[compliance] Warning: git reset failed for ${gap.id}`);
+          }
+        }
+        deferredGaps.push(gap);
+        continue;
+      }
 
       // Commit the fix
       if (restorePoint) {
