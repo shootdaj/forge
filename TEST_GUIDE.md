@@ -296,3 +296,22 @@ Requirements covered: IOS-01, IOS-02, IOS-03 (all 3/3)
 - `src/verifiers/flutter-build-ios.test.ts` — 9 tests (IOS-02)
 - `test/integration/ios-simulator-integration.test.ts` — 7 tests (IOS-01, IOS-02, IOS-03)
 - `test/scenarios/ios-uat-scenario.test.ts` — 3 tests (IOS-03)
+
+### Phase 13: Incremental Spec Compliance (2026-04-08)
+
+| Tier | Tests | Passed | Failed |
+|---|---|---|---|
+| Unit | 7 | 7 | 0 |
+| Integration | 6 | 6 | 0 |
+| Scenario | 1 | 1 | 0 |
+| **Total** | **14** | **14** | **0** |
+
+Requirements covered: N/A (internal improvement — no formal requirement IDs)
+
+**New test files:**
+- `src/pipeline/prompts.test.ts` — 7 new tests for `buildIncrementalGapFixPrompt` (prompt content, passing set, regression warnings)
+- `src/pipeline/spec-compliance.test.ts` — 7 new tests: `execGitCommand` (1), `runIncrementalComplianceLoop` (5 integration), scenario E2E (1)
+
+**Updated test files:**
+- `src/pipeline/spec-compliance.test.ts` — 4 existing tests updated for incremental behavior (batch->incremental, targeted->regression-revert)
+- `src/pipeline/pipeline-controller.test.ts` — 1 existing test updated for incremental compliance behavior
