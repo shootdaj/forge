@@ -315,3 +315,21 @@ Requirements covered: N/A (internal improvement — no formal requirement IDs)
 **Updated test files:**
 - `src/pipeline/spec-compliance.test.ts` — 4 existing tests updated for incremental behavior (batch->incremental, targeted->regression-revert)
 - `src/pipeline/pipeline-controller.test.ts` — 1 existing test updated for incremental compliance behavior
+
+### Phase 15: Session Watchdog (2026-04-08)
+
+| Tier | Tests | Passed | Failed |
+|---|---|---|---|
+| Unit | 9 | 9 | 0 |
+| Integration | 7 | 7 | 0 |
+| Scenario | 3 | 3 | 0 |
+| **Total** | **19** | **19** | **0** |
+
+Requirements covered: N/A (internal improvement — Session Watchdog for stuck SDK sessions)
+
+**New test files:**
+- `src/step-runner/watchdog.test.ts` — 9 unit tests: completion, timeout, heartbeat intervals, heartbeat stops after completion, AbortController signaled, retry success, retry exhaustion, callback correctness, zero retries
+
+**Updated test files:**
+- `src/step-runner/step-runner.test.ts` — 7 new tests in "Session Watchdog Integration" block: watchdog timeout retries step, exhausts retries, heartbeat emitted, state updated with heartbeat, normal step unaffected, pipeline timeout-retry-succeed, pipeline exhaust-continue
+- `src/config/config.test.ts` — 3 new tests: watchdog defaults (120s/30s/2), custom values, partial override
