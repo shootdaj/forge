@@ -297,6 +297,73 @@ export function buildTargetedGapFixPrompt(
 }
 
 /**
+ * Build prompt for fixing a SINGLE spec compliance gap with regression awareness.
+ *
+ * Used by the incremental compliance loop. Each gap gets its own SDK session
+ * with explicit knowledge of which requirements currently pass (and must not be broken).
+ *
+ * @param requirementId - The requirement ID to fix
+ * @param gapDescription - Description of what's missing
+ * @param round - Current compliance round number
+ * @param passingRequirements - Array of requirement IDs that currently pass
+ * @param requirementsDoc - Full REQUIREMENTS.md content for context
+ * @returns Prompt string for the incremental gap fix step
+ */
+export function buildIncrementalGapFixPrompt(
+  requirementId: string,
+  gapDescription: string,
+  round: number,
+  passingRequirements: string[],
+  requirementsDoc?: string,
+): string {
+  const requirementsSection = requirementsDoc
+    ? [
+        "",
+        "## Requirements Document",
+        `Find requirement ${requirementId} in the document below to understand its FULL scope:`,
+        "",
+        "```markdown",
+        requirementsDoc,
+        "```",
+        "",
+      ].join("\n")
+    : "";
+
+  const passingSection =
+    passingRequirements.length > 0
+      ? [
+          "",
+          "## Currently Passing Requirements",
+          "",
+          "CRITICAL: The following requirements currently PASS. Your changes MUST NOT break any of them:",
+          ...passingRequirements.map((id) => `- ${id}`),
+          "",
+          "If your fix for the gap below would break any of the above requirements,",
+          "find a different approach that preserves them. Changes that cause regressions",
+          "will be automatically reverted.",
+          "",
+        ].join("\n")
+      : "";
+
+  return [
+    `INCREMENTAL FIX: Fix requirement ${requirementId} (round ${round}).`,
+    "",
+    "## Gap Description:",
+    gapDescription,
+    requirementsSection,
+    passingSection,
+    "## Instructions:",
+    `1. Find requirement ${requirementId} in the requirements document above and read its FULL description`,
+    "2. Search the codebase for any existing partial implementation",
+    "3. Make MINIMAL, FOCUSED changes that fix ONLY this gap — do not refactor unrelated code",
+    "4. Run tests to ensure your changes work AND nothing else is broken",
+    `5. This is compliance round ${round}`,
+    "6. Your changes will be individually verified and regression-checked against all passing requirements",
+    "7. If regressions are detected, ALL your changes will be reverted — so keep changes small and targeted",
+  ].join("\n");
+}
+
+/**
  * Build mobile deployment-awareness context for Flutter projects.
  * Included in agent context when appType is "flutter".
  *

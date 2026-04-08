@@ -98,3 +98,13 @@
 | 10. Android Emulator Lifecycle | v1.1 | 2/2 | Complete | 2026-03-28 |
 | 11. Maestro UAT Integration | v1.1 | 3/3 | Complete | 2026-03-28 |
 | 12. iOS Simulator Support | v1.1 | 2/2 | Complete | 2026-03-28 |
+
+### Phase 13: Incremental Spec Compliance — fix-one-verify-one loop with git rollback and regression-aware prompts
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 12
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 13 to break down)

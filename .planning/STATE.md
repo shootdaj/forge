@@ -59,6 +59,10 @@ Progress: [----------] 0% (v1.1)
 - v1.1: `"flutter"` as specific AppType union member (not generic "mobile") — enables exhaustive TS switch
 - v1.1: iOS Simulator in separate phase (Phase 12) — different boot/build path from Android
 
+### Roadmap Evolution
+
+- Phase 13 added: Incremental Spec Compliance — fix-one-verify-one loop with git rollback and regression-aware prompts
+
 ### Blockers/Concerns
 
 - Phase 11 (Maestro): Maestro 2.3.0 `--format junit` regression status unconfirmed for this version — 5-min spike before building result parser (see research SUMMARY.md)

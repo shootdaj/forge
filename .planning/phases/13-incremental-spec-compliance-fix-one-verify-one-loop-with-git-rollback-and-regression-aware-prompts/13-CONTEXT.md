@@ -112,5 +112,29 @@ None — discussion stayed within phase scope
 
 ---
 
+## Testing Requirements
+
+### Unit Tests
+- `checkConvergence()` with incremental gap history patterns
+- `buildIncrementalGapFixPrompt()` includes passing requirements list
+- Git restore point recording and reset logic (mocked execFn)
+- Monotonic gap decrease validation
+- Regression detection from verify results
+
+### Integration Tests
+- `runIncrementalComplianceLoop()` with mock SDK that simulates:
+  - Fix succeeds, verify passes, no regressions -> commit
+  - Fix succeeds, verify passes, regression detected -> revert
+  - Multiple gaps in sequence with mixed success/revert
+  - Gap count monotonically decreases across rounds
+- Prompt content includes passing requirements in fix prompts
+
+### Scenario Tests
+- Full `runSpecComplianceLoop()` flow with incremental behavior:
+  - All gaps fixed in one round (happy path)
+  - Some gaps deferred due to regressions, fixed in next round
+  - Non-convergence detection (gaps not decreasing)
+  - State updates reflect incremental progress
+
 *Phase: 13-incremental-spec-compliance*
 *Context gathered: 2026-04-08*
