@@ -101,10 +101,11 @@
 
 ### Phase 13: Incremental Spec Compliance — fix-one-verify-one loop with git rollback and regression-aware prompts
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Replace batched spec compliance loop with incremental fix-one-verify-one approach that prevents regressions
+**Requirements**: N/A (internal improvement)
 **Depends on:** Phase 12
-**Plans:** 0 plans
+**Plans:** 2/2
 
 Plans:
-- [ ] TBD (run /gsd:plan-phase 13 to break down)
+- [x] 13-01: Incremental compliance engine + regression-aware prompts — completed 2026-04-08
+- [x] 13-02: Tests for incremental compliance engine — completed 2026-04-08
