@@ -64,6 +64,12 @@ Progress: [----------] 0% (v1.1)
 - Phase 11 (Maestro): Maestro 2.3.0 `--format junit` regression status unconfirmed for this version — 5-min spike before building result parser (see research SUMMARY.md)
 - Phase 12 (iOS): `xcrun simctl` boot detection pattern differs from Android `adb` pattern — may need research spike
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260408-hme | Fix forge init bugs: TTY guard + existing-requirements guard | 2026-04-08 | d06a206 | [260408-hme](./quick/260408-hme-fix-forge-init-bugs-tty-detection-for-de/) |
+
 ## Session Continuity
 
 Last session: 2026-03-28T03:24:25.446Z
