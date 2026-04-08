@@ -85,6 +85,7 @@ function createTestConfig(
     maxBudgetPerStep: 15,
     maxRetries: 3,
     maxComplianceRounds: 5,
+    maxParallelGapFixes: 3,
     maxTurnsPerStep: 200,
     testing: {
       stack: "node",

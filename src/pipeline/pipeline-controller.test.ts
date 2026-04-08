@@ -69,6 +69,7 @@ function makeConfig(overrides: Partial<ForgeConfig> = {}): ForgeConfig {
     maxBudgetPerStep: 15,
     maxRetries: 2,
     maxComplianceRounds: 3,
+    maxParallelGapFixes: 3,
     maxTurnsPerStep: 200,
     testing: {
       stack: "node",

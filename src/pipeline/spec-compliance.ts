@@ -199,7 +199,7 @@ export async function verifyRequirementsBatch(
   requirementIds: string[],
   ctx: PipelineContext,
   requirementsDoc?: string,
-): Promise<Array<{ id: string; passed: boolean; gapDescription: string }>> {
+): Promise<Array<{ id: string; passed: boolean; gapDescription: string; files: string[] }>> {
   const reqList = requirementIds.map((id) => `- ${id}`).join("\n");
 
   const requirementsSection = requirementsDoc
@@ -237,10 +237,13 @@ export async function verifyRequirementsBatch(
         "After analyzing ALL requirements, output your verdicts as a single JSON code block containing an array:",
         "```json",
         "[",
-        '  { "id": "R1", "passed": true, "gapDescription": "" },',
-        '  { "id": "R2", "passed": false, "gapDescription": "Missing error handling for..." }',
+        '  { "id": "R1", "passed": true, "gapDescription": "", "files": [] },',
+        '  { "id": "R2", "passed": false, "gapDescription": "Missing error handling for...", "files": ["src/auth.ts", "src/auth.test.ts"] }',
         "]",
         "```",
+        "",
+        "For each FAILING requirement, include a \"files\" array listing the source files",
+        "that would need to be modified to fix the gap. For passing requirements, \"files\" can be empty.",
         "",
         "IMPORTANT: You MUST include a verdict for EVERY requirement listed above.",
         "Output the JSON array as the very last thing in your response.",
@@ -261,17 +264,17 @@ export async function verifyRequirementsBatch(
         const verdict = verdictMap.get(id);
         if (verdict) return verdict;
         // Missing from response — treat as gap
-        return { id, passed: false, gapDescription: "Not included in batch verification response" };
+        return { id, passed: false, gapDescription: "Not included in batch verification response", files: [] };
       });
     }
   }
 
   // Batch failed — fall back to individual verification
   console.log("[compliance] Batch verification failed, falling back to individual checks");
-  const results: Array<{ id: string; passed: boolean; gapDescription: string }> = [];
+  const results: Array<{ id: string; passed: boolean; gapDescription: string; files: string[] }> = [];
   for (const id of requirementIds) {
     const r = await verifyRequirement(id, ctx);
-    results.push({ id, ...r });
+    results.push({ id, ...r, files: [] });
   }
   return results;
 }
@@ -320,7 +323,7 @@ function extractJsonVerdict(
  */
 function extractJsonVerdictArray(
   text: string,
-): Array<{ id: string; passed: boolean; gapDescription: string }> | null {
+): Array<{ id: string; passed: boolean; gapDescription: string; files: string[] }> | null {
   // Try code block first
   const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
   const jsonStr = codeBlockMatch ? codeBlockMatch[1] : text;
@@ -339,6 +342,7 @@ function extractJsonVerdictArray(
             id: String(obj.id),
             passed: Boolean(obj.passed),
             gapDescription: String(obj.gapDescription ?? ""),
+            files: Array.isArray(obj.files) ? (obj.files as unknown[]).map(String) : [],
           };
         });
     }
@@ -360,6 +364,7 @@ function extractJsonVerdictArray(
                 id: String(obj.id),
                 passed: Boolean(obj.passed),
                 gapDescription: String(obj.gapDescription ?? ""),
+                files: Array.isArray(obj.files) ? (obj.files as unknown[]).map(String) : [],
               };
             });
         }
