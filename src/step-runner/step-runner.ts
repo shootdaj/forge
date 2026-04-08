@@ -16,10 +16,12 @@ import type {
   StepResultFailed,
   StepResultError,
   StepResultBudgetExceeded,
+  StepResultTimedOut,
   StepRunnerContext,
 } from "./types.js";
 import { BudgetExceededError } from "./types.js";
 import type { CostController } from "./cost-controller.js";
+import { runWithRetries } from "./watchdog.js";
 
 /**
  * Execute a single step: query the SDK, enforce budget, track cost, verify.
@@ -74,16 +76,59 @@ export async function runStep(
     throw err;
   }
 
-  // ─── 2. Execute query with per-step budget ───
+  // ─── 2. Execute query with watchdog and per-step budget ───
   // COST-01: Per-step budget via maxBudgetUsd
-  const queryResult = await executeQueryFn({
-    prompt: opts.prompt,
-    maxBudgetUsd: opts.maxBudgetUsd ?? config.maxBudgetPerStep,
-    maxTurns: opts.maxTurns ?? config.maxTurnsPerStep,
-    model: opts.model ?? config.model,
-    cwd: opts.cwd,
-    outputSchema: opts.outputSchema,
-  });
+  // Phase 15: Watchdog wraps execution with inactivity timeout + heartbeat
+  const watchdogConfig = {
+    inactivityTimeoutMs: (config.watchdog?.inactivityTimeoutSeconds ?? 120) * 1000,
+    heartbeatIntervalMs: (config.watchdog?.heartbeatIntervalSeconds ?? 30) * 1000,
+    maxRetries: config.watchdog?.maxRetries ?? 2,
+    stepName: name,
+  };
+
+  const watchdogResult = await runWithRetries(
+    async (abortController) => {
+      return executeQueryFn({
+        prompt: opts.prompt,
+        maxBudgetUsd: opts.maxBudgetUsd ?? config.maxBudgetPerStep,
+        maxTurns: opts.maxTurns ?? config.maxTurnsPerStep,
+        model: opts.model ?? config.model,
+        cwd: opts.cwd,
+        outputSchema: opts.outputSchema,
+        abortController,
+      });
+    },
+    watchdogConfig,
+    {
+      onHeartbeat: (seconds, stepName) => {
+        console.log(`[forge] ${seconds}s since last activity... (step: ${stepName})`);
+        // Update state with heartbeat timestamp (best-effort, non-blocking)
+        stateManager.update((state) => ({
+          ...state,
+          lastHeartbeat: new Date().toISOString(),
+        })).catch(() => { /* heartbeat state update is best-effort */ });
+      },
+      onTimeout: (attempt, stepName) => {
+        console.log(`[forge] Session timed out after ${watchdogConfig.inactivityTimeoutMs / 1000}s inactivity (step: ${stepName}, attempt: ${attempt})`);
+      },
+      onRetry: (attempt, stepName) => {
+        console.log(`[forge] Retrying step ${stepName} (attempt ${attempt + 1}/${watchdogConfig.maxRetries + 1})`);
+      },
+    },
+  );
+
+  // Handle watchdog exhaustion (all retries timed out)
+  if ("timedOut" in watchdogResult) {
+    return {
+      status: "timed_out",
+      costUsd: 0,
+      attempts: watchdogResult.attempts,
+      timeoutSeconds: watchdogConfig.inactivityTimeoutMs / 1000,
+      error: `Step ${name} timed out after ${watchdogResult.attempts} attempt(s) — no SDK activity for ${watchdogConfig.inactivityTimeoutMs / 1000}s per attempt`,
+    } satisfies StepResultTimedOut;
+  }
+
+  const queryResult = watchdogResult.result;
 
   const stepCostUsd = queryResult.cost.totalCostUsd;
 
