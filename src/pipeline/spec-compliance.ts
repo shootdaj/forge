@@ -646,20 +646,59 @@ export async function runIncrementalComplianceLoop(
       }
 
       // Post-group regression check on all previously-passing requirements
-      if (currentPassing.length > 0 && group.length > 1) {
-        const regressionVerdicts = await verifyRequirementsBatch(
-          currentPassing,
-          ctx,
-          requirementsDoc,
+      // For single-gap groups, this catches regressions from individual fixes
+      // For multi-gap groups, this catches cross-gap interactions that file analysis missed
+      const fixedInGroup = group.filter((gapId) => {
+        const idx = group.indexOf(gapId);
+        const result = results[idx];
+        return result.status === "fulfilled" && result.value.fixed;
+      });
+
+      if (currentPassing.length > 0 && fixedInGroup.length > 0) {
+        // Check regression on all passing reqs EXCEPT those just fixed in this group
+        const regressCandidates = currentPassing.filter(
+          (id) => !fixedInGroup.includes(id),
         );
-        const regressions = regressionVerdicts.filter((v) => !v.passed);
-        if (regressions.length > 0) {
-          console.log(
-            `[compliance] Post-group regression detected: ${regressions.length} requirement(s) regressed — ` +
-              regressions.map((r) => r.id).join(", "),
+        if (regressCandidates.length > 0) {
+          const regressionVerdicts = await verifyRequirementsBatch(
+            regressCandidates,
+            ctx,
+            requirementsDoc,
           );
-          // Post-group regressions indicate a cross-gap interaction that file analysis missed.
-          // These regressions are logged and the affected requirements will be caught in next round.
+          const regressions = regressionVerdicts.filter((v) => !v.passed);
+          if (regressions.length > 0) {
+            console.log(
+              `[compliance] Post-group regression detected: ${regressions.length} requirement(s) regressed — ` +
+                regressions.map((r) => r.id).join(", ") +
+                " — reverting group fixes",
+            );
+            // Revert all fixes in this group that succeeded
+            for (const fixedGapId of fixedInGroup) {
+              // Remove from currentPassing
+              const passIdx = currentPassing.indexOf(fixedGapId);
+              if (passIdx !== -1) {
+                currentPassing.splice(passIdx, 1);
+              }
+              // Add back to deferred
+              const gap = gapsWithFiles.find((g) => g.id === fixedGapId)!;
+              deferredGaps.push({ id: gap.id, description: gap.description });
+            }
+            // Revert via git
+            try {
+              execGitCommand("git rev-parse HEAD", ctx); // check git availability
+              // Revert to the state before this group started
+              // Note: individual fixSingleGap already committed, so we need to revert those
+              for (const _fixedGapId of fixedInGroup) {
+                try {
+                  execGitCommand("git reset --hard HEAD~1", ctx);
+                } catch {
+                  // Best effort revert
+                }
+              }
+            } catch {
+              // Git not available
+            }
+          }
         }
       }
     }

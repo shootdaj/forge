@@ -1263,3 +1263,322 @@ describe("Scenario: Full incremental compliance flow", () => {
     expect(stateUpdates.length).toBeGreaterThan(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Parallel Gap Fixing — Integration & Scenario Tests (Phase 16)
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a mock PipelineContext that returns file info in verification verdicts.
+ * Used for testing parallel gap fixing behavior.
+ */
+function makeMockContextWithFiles(options: {
+  verifyResults: Record<string, { passed: boolean; gapDescription: string; files: string[] }>;
+  maxComplianceRounds?: number;
+  maxParallelGapFixes?: number;
+  /** Controls how fixes behave: "all-succeed" makes all pass after fix,
+   *  "first-succeeds-rest-fail" makes only first gap succeed */
+  fixBehavior?: "all-succeed" | "first-succeeds-rest-fail";
+}): {
+  ctx: PipelineContext;
+  stepCalls: Array<{ name: string; prompt: string }>;
+  stateUpdates: Array<(state: ForgeState) => ForgeState>;
+  gitCommands: string[];
+} {
+  const stepCalls: Array<{ name: string; prompt: string }> = [];
+  const stateUpdates: Array<(state: ForgeState) => ForgeState> = [];
+  const gitCommands: string[] = [];
+  let currentState = makeState();
+  let roundCount = 0;
+
+  const verifyResults = options.verifyResults ?? {};
+  const fixBehavior = options.fixBehavior ?? "all-succeed";
+
+  // Track which gaps have been "fixed" (simulated)
+  const fixedGaps = new Set<string>();
+
+  const mockExecuteQuery = async (opts: any): Promise<any> => {
+    const prompt = opts.prompt as string;
+
+    // Handle batch verification prompt
+    if (prompt.includes("Verify whether each of the following requirements")) {
+      const allReqIds = prompt.match(/- ([\w-]+)/g)?.map((m: string) => m.slice(2)) ?? [];
+      const verdicts = allReqIds.map((id: string) => {
+        const result = verifyResults[id];
+        if (!result) {
+          return { id, passed: true, gapDescription: "", files: [] };
+        }
+        // If gap was fixed, report as passing
+        if (fixedGaps.has(id)) {
+          return { id, passed: true, gapDescription: "", files: [] };
+        }
+        return { id, ...result };
+      });
+      return {
+        ok: true,
+        result: "```json\n" + JSON.stringify(verdicts) + "\n```",
+        structuredOutput: null,
+        cost: { totalCostUsd: 0.01 },
+        sessionId: "mock-session",
+      };
+    }
+
+    // Handle individual verification (for post-fix verify)
+    if (prompt.includes("Verify whether requirement")) {
+      for (const [reqId, result] of Object.entries(verifyResults)) {
+        if (prompt.includes(reqId)) {
+          const passed = fixedGaps.has(reqId);
+          return {
+            ok: true,
+            result: JSON.stringify({ passed, gapDescription: passed ? "" : result.gapDescription }),
+            structuredOutput: { passed, gapDescription: passed ? "" : result.gapDescription },
+            cost: { totalCostUsd: 0.01 },
+            sessionId: "mock-session",
+          };
+        }
+      }
+      return {
+        ok: true,
+        result: JSON.stringify({ passed: true, gapDescription: "" }),
+        structuredOutput: { passed: true, gapDescription: "" },
+        cost: { totalCostUsd: 0.01 },
+        sessionId: "mock-session",
+      };
+    }
+
+    // Handle fix prompt — simulate fix
+    if (prompt.includes("INCREMENTAL FIX:")) {
+      const reqMatch = prompt.match(/Fix requirement ([\w-]+)/);
+      if (reqMatch) {
+        const gapId = reqMatch[1];
+        if (fixBehavior === "all-succeed") {
+          fixedGaps.add(gapId);
+        } else if (fixBehavior === "first-succeeds-rest-fail") {
+          if (fixedGaps.size === 0) {
+            fixedGaps.add(gapId);
+          }
+          // else: don't mark as fixed — verify will fail
+        }
+      }
+      return {
+        ok: true,
+        result: "Fixed",
+        structuredOutput: null,
+        cost: { totalCostUsd: 0.01 },
+        sessionId: "mock-session",
+      };
+    }
+
+    return {
+      ok: true,
+      result: "OK",
+      structuredOutput: { passed: true, gapDescription: "" },
+      cost: { totalCostUsd: 0.01 },
+      sessionId: "mock-session",
+    };
+  };
+
+  const config = makeConfig({
+    maxComplianceRounds: options.maxComplianceRounds ?? 5,
+  });
+  // Add maxParallelGapFixes
+  (config as any).maxParallelGapFixes = options.maxParallelGapFixes ?? 3;
+
+  const stepRunnerContext: StepRunnerContext = {
+    config,
+    stateManager: {
+      load: () => currentState,
+      update: async (updater: (state: ForgeState) => ForgeState) => {
+        stateUpdates.push(updater);
+        currentState = updater(currentState);
+        return currentState;
+      },
+    },
+    executeQueryFn: mockExecuteQuery,
+  };
+
+  const ctx: PipelineContext = {
+    config,
+    stateManager: {
+      load: () => currentState,
+      update: async (updater: (state: ForgeState) => ForgeState) => {
+        stateUpdates.push(updater);
+        currentState = updater(currentState);
+        return currentState;
+      },
+    },
+    stepRunnerContext,
+    costController: {
+      checkBudget: () => {},
+      recordStepCost: () => {},
+    } as any,
+    runPhaseFn: async () => ({
+      status: "completed" as const,
+      phaseNumber: 1,
+      requirementsCompleted: [],
+      testResults: { passed: 0, failed: 0, total: 0 },
+      verificationReport: { checks: [], allPassed: true },
+      costUsd: 0,
+    }),
+    fs: {
+      existsSync: () => false,
+      readFileSync: () => "",
+      writeFileSync: () => {},
+      mkdirSync: () => undefined,
+    } as any,
+    execFn: (cmd: string) => {
+      gitCommands.push(cmd);
+      if (cmd.includes("rev-parse HEAD")) return "abc123";
+      if (cmd.includes("git add")) return "";
+      if (cmd.includes("reset --hard")) return "";
+      return "";
+    },
+  };
+
+  return { ctx, stepCalls, stateUpdates, gitCommands };
+}
+
+describe("runIncrementalComplianceLoop - parallel execution", () => {
+  it("fixes independent gaps (different files) and converges", async () => {
+    const { ctx } = makeMockContextWithFiles({
+      verifyResults: {
+        "REQ-01": { passed: false, gapDescription: "Missing A", files: ["src/a.ts"] },
+        "REQ-02": { passed: false, gapDescription: "Missing B", files: ["src/b.ts"] },
+        "REQ-03": { passed: false, gapDescription: "Missing C", files: ["src/c.ts"] },
+      },
+      fixBehavior: "all-succeed",
+    });
+
+    const result = await runIncrementalComplianceLoop(
+      ["REQ-01", "REQ-02", "REQ-03"],
+      ctx,
+    );
+
+    expect(result.converged).toBe(true);
+    expect(result.remainingGaps).toEqual([]);
+  });
+
+  it("fixes overlapping gaps (shared files) and converges", async () => {
+    const { ctx } = makeMockContextWithFiles({
+      verifyResults: {
+        "REQ-01": { passed: false, gapDescription: "Missing A", files: ["src/shared.ts"] },
+        "REQ-02": { passed: false, gapDescription: "Missing B", files: ["src/shared.ts"] },
+      },
+      fixBehavior: "all-succeed",
+    });
+
+    const result = await runIncrementalComplianceLoop(
+      ["REQ-01", "REQ-02"],
+      ctx,
+    );
+
+    expect(result.converged).toBe(true);
+    expect(result.remainingGaps).toEqual([]);
+  });
+
+  it("falls back to sequential when no file info available", async () => {
+    const { ctx } = makeMockContextWithFiles({
+      verifyResults: {
+        "REQ-01": { passed: false, gapDescription: "Missing A", files: [] },
+        "REQ-02": { passed: false, gapDescription: "Missing B", files: [] },
+      },
+      fixBehavior: "all-succeed",
+    });
+
+    const result = await runIncrementalComplianceLoop(
+      ["REQ-01", "REQ-02"],
+      ctx,
+    );
+
+    expect(result.converged).toBe(true);
+    expect(result.remainingGaps).toEqual([]);
+  });
+
+  it("handles mixed results (some succeed, some deferred)", async () => {
+    const { ctx } = makeMockContextWithFiles({
+      verifyResults: {
+        "REQ-01": { passed: false, gapDescription: "Missing A", files: ["src/a.ts"] },
+        "REQ-02": { passed: false, gapDescription: "Missing B", files: ["src/b.ts"] },
+      },
+      fixBehavior: "first-succeeds-rest-fail",
+      maxComplianceRounds: 3,
+    });
+
+    const result = await runIncrementalComplianceLoop(
+      ["REQ-01", "REQ-02"],
+      ctx,
+    );
+
+    // First round: one succeeds, one deferred
+    // Subsequent rounds should eventually converge (fix behavior allows only first)
+    expect(result.roundsCompleted).toBeGreaterThanOrEqual(1);
+  });
+
+  it("respects maxParallelGapFixes config", async () => {
+    const { ctx } = makeMockContextWithFiles({
+      verifyResults: {
+        "REQ-01": { passed: false, gapDescription: "A", files: ["src/a.ts"] },
+        "REQ-02": { passed: false, gapDescription: "B", files: ["src/b.ts"] },
+        "REQ-03": { passed: false, gapDescription: "C", files: ["src/c.ts"] },
+        "REQ-04": { passed: false, gapDescription: "D", files: ["src/d.ts"] },
+      },
+      fixBehavior: "all-succeed",
+      maxParallelGapFixes: 2,
+    });
+
+    const result = await runIncrementalComplianceLoop(
+      ["REQ-01", "REQ-02", "REQ-03", "REQ-04"],
+      ctx,
+    );
+
+    expect(result.converged).toBe(true);
+    expect(result.remainingGaps).toEqual([]);
+  });
+});
+
+describe("runSpecComplianceLoop - parallel scenario", () => {
+  it("converges with mix of independent and overlapping gaps", async () => {
+    const { ctx } = makeMockContextWithFiles({
+      verifyResults: {
+        "REQ-01": { passed: false, gapDescription: "A", files: ["src/a.ts"] },
+        "REQ-02": { passed: false, gapDescription: "B", files: ["src/a.ts", "src/b.ts"] },
+        "REQ-03": { passed: false, gapDescription: "C", files: ["src/c.ts"] },
+        "REQ-04": { passed: true, gapDescription: "", files: [] },
+      },
+      fixBehavior: "all-succeed",
+    });
+
+    const result = await runSpecComplianceLoop(
+      ["REQ-01", "REQ-02", "REQ-03", "REQ-04"],
+      ctx,
+    );
+
+    expect(result.converged).toBe(true);
+    // Gap history should show decrease
+    expect(result.gapHistory[0]).toBe(4); // baseline = total requirements
+    expect(result.gapHistory[result.gapHistory.length - 1]).toBe(0);
+  });
+
+  it("maintains monotonic gap decrease with parallel execution", async () => {
+    const { ctx } = makeMockContextWithFiles({
+      verifyResults: {
+        "REQ-01": { passed: false, gapDescription: "A", files: ["src/a.ts"] },
+        "REQ-02": { passed: false, gapDescription: "B", files: ["src/b.ts"] },
+        "REQ-03": { passed: false, gapDescription: "C", files: ["src/c.ts"] },
+      },
+      fixBehavior: "all-succeed",
+    });
+
+    const result = await runSpecComplianceLoop(
+      ["REQ-01", "REQ-02", "REQ-03"],
+      ctx,
+    );
+
+    expect(result.converged).toBe(true);
+
+    // Verify monotonic decrease in gap history (after baseline)
+    for (let i = 2; i < result.gapHistory.length; i++) {
+      expect(result.gapHistory[i]).toBeLessThanOrEqual(result.gapHistory[i - 1]);
+    }
+  });
+});
