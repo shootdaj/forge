@@ -59,10 +59,20 @@ Progress: [----------] 0% (v1.1)
 - v1.1: `"flutter"` as specific AppType union member (not generic "mobile") — enables exhaustive TS switch
 - v1.1: iOS Simulator in separate phase (Phase 12) — different boot/build path from Android
 
+### Roadmap Evolution
+
+- Phase 13 added: Incremental Spec Compliance — fix-one-verify-one loop with git rollback and regression-aware prompts
+
 ### Blockers/Concerns
 
 - Phase 11 (Maestro): Maestro 2.3.0 `--format junit` regression status unconfirmed for this version — 5-min spike before building result parser (see research SUMMARY.md)
 - Phase 12 (iOS): `xcrun simctl` boot detection pattern differs from Android `adb` pattern — may need research spike
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260408-hme | Fix forge init bugs: TTY guard + existing-requirements guard | 2026-04-08 | d06a206 | [260408-hme](./quick/260408-hme-fix-forge-init-bugs-tty-detection-for-de/) |
 
 ## Session Continuity
 

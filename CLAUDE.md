@@ -92,6 +92,15 @@ Use semantic names: `Test<Component>_<Behavior>[_<Condition>]`
 - See `.claude/ax/references/testing-pyramid.md` for full methodology
 - Every requirement in ROADMAP.md must map to at least one scenario test
 
+## Core Principle: Apps Are Test Vehicles for Forge
+
+When building apps with Forge, the goal is **improving Forge**, not shipping the app. Every app build failure, gap, or regression is a signal that Forge itself needs to be better. The app is the test — Forge is the product.
+
+- Found a bug in the app? → Trace it to a Forge weakness. Fix Forge. Re-run the app build.
+- Spec compliance not converging? → Fix the compliance algorithm in Forge.
+- UAT missing something? → Fix UAT prompts/verifiers in Forge.
+- Never manually patch the app. Always fix Forge first, then let Forge fix the app.
+
 ## Bug Reports: Fix Root Cause in Forge
 
 When a user reports a bug in an app built by Forge (e.g., "login doesn't work", "links are 404"), **always trace the root cause back to Forge itself** before patching the app. The question is never "how do I fix this app?" — it's "why didn't Forge prevent/catch this?"

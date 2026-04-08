@@ -11,9 +11,14 @@
  */
 
 import * as nodeFs from "node:fs";
+import { execSync } from "node:child_process";
 import type { PipelineContext, SpecComplianceResult } from "./types.js";
 import { runStep } from "../step-runner/step-runner.js";
-import { buildBatchGapFixPrompt, buildTargetedGapFixPrompt } from "./prompts.js";
+import {
+  buildBatchGapFixPrompt,
+  buildTargetedGapFixPrompt,
+  buildIncrementalGapFixPrompt,
+} from "./prompts.js";
 
 /**
  * Check whether the gap history indicates convergence.
@@ -381,17 +386,291 @@ export function readRequirementsDoc(fs?: { readFileSync: typeof nodeFs.readFileS
 }
 
 /**
+ * Execute a git command, using ctx.execFn if available (for testing),
+ * otherwise using child_process.execSync.
+ *
+ * @param cmd - The git command to run
+ * @param ctx - Pipeline context (may have injected execFn)
+ * @returns Command stdout as string
+ */
+export function execGitCommand(cmd: string, ctx: PipelineContext): string {
+  if (ctx.execFn) {
+    return ctx.execFn(cmd);
+  }
+  return execSync(cmd, { encoding: "utf-8" }).trim();
+}
+
+/**
+ * Run the incremental spec compliance loop.
+ *
+ * Fixes gaps one at a time: each gap gets its own SDK session, is verified
+ * (including regression checks on all previously-passing requirements), and
+ * is committed on success or reverted via git reset --hard on regression.
+ *
+ * Gap count must monotonically decrease (or stay flat from deferred gaps).
+ *
+ * Requirements: PIPE-07, PIPE-08
+ *
+ * @param requirementIds - Array of requirement IDs to verify
+ * @param ctx - Pipeline context with all dependencies
+ * @returns SpecComplianceResult with convergence status
+ */
+export async function runIncrementalComplianceLoop(
+  requirementIds: string[],
+  ctx: PipelineContext,
+): Promise<SpecComplianceResult> {
+  // Read REQUIREMENTS.md for context
+  const requirementsDoc = readRequirementsDoc(
+    ctx.fs ? { readFileSync: ctx.fs.readFileSync } : undefined,
+  );
+
+  const maxRounds = ctx.config.maxComplianceRounds;
+
+  // Seed gapHistory with baseline (total requirements)
+  const gapHistory: number[] = [requirementIds.length];
+
+  // Update state: entering wave 3
+  try {
+    await ctx.stateManager.update((state) => ({
+      ...state,
+      status: "wave_3" as const,
+      specCompliance: {
+        ...state.specCompliance,
+        totalRequirements: requirementIds.length,
+        gapHistory: [...gapHistory],
+        roundsCompleted: 0,
+      },
+    }));
+  } catch (err) {
+    console.warn("[forge] Warning: spec compliance state update failed:", err);
+  }
+
+  for (let round = 1; round <= maxRounds; round++) {
+    // Verify all requirements in a single batch session
+    const verdicts = await verifyRequirementsBatch(requirementIds, ctx, requirementsDoc);
+
+    // Build passing set and gap set
+    const passingSet: string[] = [];
+    const gaps: Array<{ id: string; description: string }> = [];
+
+    for (const verdict of verdicts) {
+      if (verdict.passed) {
+        passingSet.push(verdict.id);
+      } else {
+        gaps.push({ id: verdict.id, description: verdict.gapDescription });
+      }
+    }
+
+    // All requirements pass — no gaps to fix
+    if (gaps.length === 0) {
+      gapHistory.push(0);
+      // Update state
+      try {
+        await ctx.stateManager.update((state) => ({
+          ...state,
+          specCompliance: {
+            ...state.specCompliance,
+            gapHistory: [...gapHistory],
+            verified: passingSet.length,
+            roundsCompleted: round,
+          },
+          remainingGaps: [],
+        }));
+      } catch (err) {
+        console.warn(`[forge] Warning: spec compliance round ${round} state update failed:`, err);
+      }
+      return {
+        converged: true,
+        roundsCompleted: round,
+        gapHistory,
+        remainingGaps: [],
+      };
+    }
+
+    // Fix each gap individually with commit/revert
+    const currentPassing = [...passingSet];
+    const deferredGaps: Array<{ id: string; description: string }> = [];
+
+    for (const gap of gaps) {
+      // Record restore point
+      let restorePoint: string;
+      try {
+        restorePoint = execGitCommand("git rev-parse HEAD", ctx);
+      } catch {
+        // If git is not available, skip commit/revert but still fix
+        restorePoint = "";
+      }
+
+      // Fix the gap in its own SDK session
+      await runStep(
+        `fix-gap-incremental-${gap.id}-round-${round}`,
+        {
+          prompt: buildIncrementalGapFixPrompt(
+            gap.id,
+            gap.description,
+            round,
+            currentPassing,
+            requirementsDoc,
+          ),
+          verify: async () => true,
+        },
+        ctx.stepRunnerContext,
+        ctx.costController,
+      );
+
+      // Commit the fix
+      if (restorePoint) {
+        try {
+          execGitCommand(
+            `git add -A && git commit -m "fix: spec compliance - ${gap.id}"`,
+            ctx,
+          );
+        } catch {
+          // If commit fails (nothing to commit), that's OK
+        }
+      }
+
+      // Verify the fixed requirement
+      const fixVerdict = await verifyRequirement(gap.id, ctx, requirementsDoc);
+
+      if (!fixVerdict.passed) {
+        // Fix didn't work — revert
+        console.log(`[compliance] Fix for ${gap.id} did not resolve the gap — reverting`);
+        if (restorePoint) {
+          try {
+            execGitCommand(`git reset --hard ${restorePoint}`, ctx);
+          } catch {
+            console.warn(`[compliance] Warning: git reset failed for ${gap.id}`);
+          }
+        }
+        deferredGaps.push(gap);
+        continue;
+      }
+
+      // Regression check: verify all previously-passing requirements still pass
+      if (currentPassing.length > 0) {
+        const regressionVerdicts = await verifyRequirementsBatch(
+          currentPassing,
+          ctx,
+          requirementsDoc,
+        );
+
+        const regressions = regressionVerdicts.filter((v) => !v.passed);
+
+        if (regressions.length > 0) {
+          // Regression detected — revert
+          console.log(
+            `[compliance] Fix for ${gap.id} caused ${regressions.length} regression(s): ` +
+              regressions.map((r) => r.id).join(", ") +
+              " — reverting",
+          );
+          if (restorePoint) {
+            try {
+              execGitCommand(`git reset --hard ${restorePoint}`, ctx);
+            } catch {
+              console.warn(`[compliance] Warning: git reset failed for ${gap.id}`);
+            }
+          }
+          deferredGaps.push(gap);
+          continue;
+        }
+      }
+
+      // Fix succeeded with no regressions — update passing set
+      console.log(`[compliance] Fix for ${gap.id} verified — no regressions`);
+      currentPassing.push(gap.id);
+    }
+
+    // Record final gap count after incremental fixes
+    gapHistory.push(deferredGaps.length);
+
+    // Check convergence AFTER incremental fixes (skip for first round — always proceed)
+    if (round > 1) {
+      const convergence = checkConvergence(gapHistory);
+      if (!convergence.converging) {
+        // Update state before returning
+        try {
+          await ctx.stateManager.update((state) => ({
+            ...state,
+            specCompliance: {
+              ...state.specCompliance,
+              gapHistory: [...gapHistory],
+              verified: currentPassing.length,
+              roundsCompleted: round,
+            },
+            remainingGaps: deferredGaps.map((g) => g.id),
+          }));
+        } catch (err) {
+          console.warn(`[forge] Warning: spec compliance round ${round} state update failed:`, err);
+        }
+        return {
+          converged: false,
+          roundsCompleted: round,
+          gapHistory,
+          remainingGaps: deferredGaps.map((g) => g.id),
+        };
+      }
+    }
+
+    // If all gaps were fixed this round
+    if (deferredGaps.length === 0) {
+      // Update state
+      try {
+        await ctx.stateManager.update((state) => ({
+          ...state,
+          specCompliance: {
+            ...state.specCompliance,
+            gapHistory: [...gapHistory],
+            verified: requirementIds.length,
+            roundsCompleted: round,
+          },
+          remainingGaps: [],
+        }));
+      } catch (err) {
+        console.warn("[forge] Warning: final state update failed:", err);
+      }
+      return {
+        converged: true,
+        roundsCompleted: round,
+        gapHistory,
+        remainingGaps: [],
+      };
+    }
+
+    // Update state with actual remaining gaps after incremental fixes
+    try {
+      await ctx.stateManager.update((state) => ({
+        ...state,
+        specCompliance: {
+          ...state.specCompliance,
+          gapHistory: [...gapHistory],
+          verified: currentPassing.length,
+          roundsCompleted: round,
+        },
+        remainingGaps: deferredGaps.map((g) => g.id),
+      }));
+    } catch (err) {
+      console.warn(`[forge] Warning: incremental round ${round} state update failed:`, err);
+    }
+  }
+
+  // Exhausted max rounds — do a final verification
+  const finalVerdicts = await verifyRequirementsBatch(requirementIds, ctx, requirementsDoc);
+  const remainingGaps = finalVerdicts.filter((v) => !v.passed).map((v) => v.id);
+
+  return {
+    converged: remainingGaps.length === 0,
+    roundsCompleted: maxRounds,
+    gapHistory,
+    remainingGaps,
+  };
+}
+
+/**
  * Run the spec compliance loop.
  *
- * Iteratively verifies all requirements and fixes gaps until either:
- * - All requirements pass (converged)
- * - Gaps stop decreasing (not converging)
- * - Max rounds exhausted
- *
- * Key improvements:
- * - Reads REQUIREMENTS.md and includes full requirement descriptions in all prompts
- * - When batch fixes stall, falls back to targeted individual fixes
- * - Allows one "stuck" round before giving up (tries different approach)
+ * Delegates to the incremental compliance loop which fixes gaps one at a time
+ * with individual commit/revert cycles and regression checking.
  *
  * Requirements: PIPE-07, PIPE-08
  *
@@ -413,6 +692,24 @@ export async function runSpecComplianceLoop(
     };
   }
 
+  // Delegate to incremental compliance loop
+  return runIncrementalComplianceLoop(requirementIds, ctx);
+}
+
+/**
+ * @deprecated Use runIncrementalComplianceLoop instead.
+ *
+ * Original batched compliance loop that fixes ALL gaps in one SDK session.
+ * Kept for reference and potential fallback. The incremental approach
+ * (runIncrementalComplianceLoop) is preferred as it prevents regressions
+ * by fixing and verifying gaps one at a time with git rollback.
+ *
+ * Requirements: PIPE-07, PIPE-08
+ */
+export async function runBatchedComplianceLoop(
+  requirementIds: string[],
+  ctx: PipelineContext,
+): Promise<SpecComplianceResult> {
   // Read REQUIREMENTS.md for context — agents need to know what each ID means
   const requirementsDoc = readRequirementsDoc(
     ctx.fs ? { readFileSync: ctx.fs.readFileSync } : undefined,
@@ -489,7 +786,7 @@ export async function runSpecComplianceLoop(
         if (!usedTargetedFix) {
           console.log(`[compliance] Batch fixes stuck at ${gaps.length} gaps — switching to targeted individual fixes`);
           usedTargetedFix = true;
-          await runTargetedGapFixes(gaps, round, ctx, requirementsDoc);
+          await runBatchedTargetedGapFixes(gaps, round, ctx, requirementsDoc);
           // Don't return — let the loop re-verify in the next iteration
           continue;
         }
@@ -531,13 +828,12 @@ export async function runSpecComplianceLoop(
 }
 
 /**
- * Fix gaps individually with targeted prompts.
+ * @deprecated Used by runBatchedComplianceLoop.
  *
- * When batch fixes stall (same gap count across rounds), this function
- * fixes each gap in its own dedicated SDK session. Individual sessions
- * give the agent full focus on one requirement at a time.
+ * Fix gaps individually with targeted prompts (no git rollback).
+ * Used when batch fixes stall in the deprecated batched loop.
  */
-async function runTargetedGapFixes(
+async function runBatchedTargetedGapFixes(
   gaps: Array<{ id: string; description: string }>,
   round: number,
   ctx: PipelineContext,

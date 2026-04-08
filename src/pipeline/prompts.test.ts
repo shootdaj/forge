@@ -14,6 +14,7 @@ import {
   buildSkippedItemPrompt,
   buildComplianceGapPrompt,
   buildMobileContextPrompt,
+  buildIncrementalGapFixPrompt,
 } from "./prompts.js";
 import type { ForgeState } from "../state/schema.js";
 import type { ServiceDetection } from "./types.js";
@@ -223,6 +224,94 @@ describe("buildComplianceGapPrompt", () => {
     expect(prompt).toContain("round 1");
     expect(prompt).toContain("database migration");
     expect(prompt).toContain("compliance round 1");
+  });
+});
+
+describe("buildIncrementalGapFixPrompt", () => {
+  it("TestIncrementalPrompt_IncludesPassingRequirements", () => {
+    const prompt = buildIncrementalGapFixPrompt(
+      "AUTH-01",
+      "Missing login validation",
+      1,
+      ["REQ-01", "REQ-02"],
+    );
+
+    expect(prompt).toContain("REQ-01");
+    expect(prompt).toContain("REQ-02");
+    expect(prompt).toContain("MUST NOT break");
+    expect(prompt).toContain("Currently Passing Requirements");
+  });
+
+  it("TestIncrementalPrompt_EmptyPassingSet", () => {
+    const prompt = buildIncrementalGapFixPrompt(
+      "AUTH-01",
+      "Missing login validation",
+      1,
+      [],
+    );
+
+    expect(prompt).not.toContain("Currently Passing Requirements");
+    expect(prompt).not.toContain("MUST NOT break");
+  });
+
+  it("TestIncrementalPrompt_IncludesGapDescription", () => {
+    const prompt = buildIncrementalGapFixPrompt(
+      "AUTH-01",
+      "Missing password hashing in signup flow",
+      2,
+      ["REQ-01"],
+    );
+
+    expect(prompt).toContain("Missing password hashing in signup flow");
+  });
+
+  it("TestIncrementalPrompt_IncludesRequirementId", () => {
+    const prompt = buildIncrementalGapFixPrompt(
+      "DATA-05",
+      "Missing migration",
+      1,
+      [],
+    );
+
+    expect(prompt).toContain("DATA-05");
+    expect(prompt).toContain("INCREMENTAL FIX: Fix requirement DATA-05");
+  });
+
+  it("TestIncrementalPrompt_IncludesRequirementsDoc", () => {
+    const prompt = buildIncrementalGapFixPrompt(
+      "AUTH-01",
+      "Missing feature",
+      1,
+      [],
+      "## AUTH-01: User Authentication\nUsers must be able to log in",
+    );
+
+    expect(prompt).toContain("User Authentication");
+    expect(prompt).toContain("Requirements Document");
+  });
+
+  it("TestIncrementalPrompt_IncludesRoundNumber", () => {
+    const prompt = buildIncrementalGapFixPrompt(
+      "AUTH-01",
+      "Missing feature",
+      3,
+      [],
+    );
+
+    expect(prompt).toContain("round 3");
+    expect(prompt).toContain("compliance round 3");
+  });
+
+  it("TestIncrementalPrompt_IncludesRevertWarning", () => {
+    const prompt = buildIncrementalGapFixPrompt(
+      "AUTH-01",
+      "Missing feature",
+      1,
+      ["REQ-01"],
+    );
+
+    expect(prompt).toContain("reverted");
+    expect(prompt).toContain("regression-checked");
   });
 });
 

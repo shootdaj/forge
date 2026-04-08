@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Usage: forge-new <project-name> [budget]
+# Example: forge-new my-saas-app 20
+
+NAME="${1:?Usage: forge-new <project-name> [budget]}"
+BUDGET="${2:-15}"
+DIR="$PWD/$NAME"
+
+if [ -d "$DIR" ]; then
+  echo "Error: $DIR already exists"
+  exit 1
+fi
+
+echo ""
+echo "  Starting Forge project: $NAME"
+echo "  Budget: \$$BUDGET"
+echo "  Directory: $DIR"
+echo ""
+
+mkdir -p "$DIR"
+cd "$DIR"
+git init -q
+
+cat > forge.config.json << EOF
+{
+  "model": "claude-sonnet-4-6",
+  "max_budget_total": $BUDGET,
+  "max_budget_per_step": 5
+}
+EOF
+
+echo "  Config created. Launching forge init..."
+echo ""
+
+forge init
+
+echo ""
+echo "  Requirements gathered. Starting autonomous build..."
+echo ""
+
+forge run

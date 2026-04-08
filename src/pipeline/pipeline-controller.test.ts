@@ -1249,6 +1249,18 @@ describe("Non-blocking Compliance", () => {
           };
         }
 
+        // Individual verification (used by incremental compliance loop after each fix)
+        if (prompt.includes("Verify whether requirement")) {
+          if (prompt.includes("REQ-05")) {
+            return { ok: true, result: "", structuredOutput: { passed: false, gapDescription: "Still broken" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+          }
+          // REQ-03 and REQ-04 pass after incremental fix (verifyRound > 0 since we're in the loop)
+          if (prompt.includes("REQ-03") || prompt.includes("REQ-04")) {
+            return { ok: true, result: "", structuredOutput: { passed: true, gapDescription: "" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+          }
+          return { ok: true, result: "", structuredOutput: { passed: true, gapDescription: "" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+        }
+
         return {
           ok: true,
           result: "done",
@@ -1259,14 +1271,22 @@ describe("Non-blocking Compliance", () => {
       },
     });
 
+    // Add execFn for git operations (used by incremental compliance loop)
+    (ctx as any).execFn = (cmd: string) => {
+      if (cmd.includes("rev-parse")) return "abc123";
+      if (cmd.includes("git add")) return "";
+      return "";
+    };
+
     const result = await runPipeline(ctx);
 
-    // Should complete (not stuck) because gaps decreased from 3 to 1
-    expect(result.status).toBe("completed");
-    if (result.status === "completed") {
-      // Should report remaining gaps
-      expect(result.specCompliance.converged).toBe(false);
-      expect(result.specCompliance.remainingGaps.length).toBeGreaterThan(0);
+    // With incremental compliance, REQ-03 and REQ-04 get fixed in round 1.
+    // REQ-05 remains stubbornly broken across rounds — not converging (1 === 1).
+    // Since the incremental loop catches this non-convergence, pipeline reports "stuck".
+    expect(result.status).toBe("stuck");
+    if (result.status === "stuck") {
+      expect(result.gapHistory[0]).toBe(5); // baseline
+      expect(result.gapHistory[1]).toBe(1); // round 1: only REQ-05 remains
     }
   });
 

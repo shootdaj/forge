@@ -13,6 +13,8 @@ import {
   verifyRequirement,
   readRequirementsDoc,
   runSpecComplianceLoop,
+  runIncrementalComplianceLoop,
+  execGitCommand,
 } from "./spec-compliance.js";
 import type { PipelineContext } from "./types.js";
 import type { ForgeState } from "../state/schema.js";
@@ -342,18 +344,26 @@ describe("runSpecComplianceLoop", () => {
 
   it("TestSpecCompliance_Loop_ConvergesRound2", async () => {
     // Round 1: REQ-01 fails, REQ-02 passes
-    // After fix: REQ-01 passes (dynamic behavior via call count)
-    let round1Done = false;
+    // Incremental fix: REQ-01 fixed within round 1, verified, no regressions
+    // Result: converges in round 1 with gapHistory [2, 0]
+    let round1FixApplied = false;
 
     const { ctx } = makeMockContext({});
+
+    // Add execFn for git operations
+    (ctx as any).execFn = (cmd: string) => {
+      if (cmd.includes("rev-parse")) return "abc123";
+      if (cmd.includes("git add")) return "";
+      return "";
+    };
 
     (ctx.stepRunnerContext as any).executeQueryFn = async (opts: any) => {
       const prompt = opts.prompt as string;
 
-      // Handle batch verification
+      // Handle batch verification (at round start)
       if (prompt.includes("Verify whether each of the following requirements")) {
         const verdicts = [
-          { id: "REQ-01", passed: round1Done, gapDescription: round1Done ? "" : "Missing validation" },
+          { id: "REQ-01", passed: round1FixApplied, gapDescription: round1FixApplied ? "" : "Missing validation" },
           { id: "REQ-02", passed: true, gapDescription: "" },
         ];
         return {
@@ -365,19 +375,19 @@ describe("runSpecComplianceLoop", () => {
         };
       }
 
-      // Handle individual verification (fallback)
+      // Handle individual verification (after fix)
       if (prompt.includes("Verify whether requirement")) {
         if (prompt.includes("REQ-02")) {
           return { ok: true, result: "", structuredOutput: { passed: true, gapDescription: "" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
         }
         if (prompt.includes("REQ-01")) {
-          return { ok: true, result: "", structuredOutput: { passed: round1Done, gapDescription: round1Done ? "" : "Missing validation" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+          return { ok: true, result: "", structuredOutput: { passed: round1FixApplied, gapDescription: round1FixApplied ? "" : "Missing validation" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
         }
       }
 
-      // Fix step (batch or individual)
-      if (prompt.includes("Fix") && prompt.includes("compliance")) {
-        round1Done = true;
+      // Fix step — marks the fix as applied
+      if (prompt.includes("INCREMENTAL FIX") || prompt.includes("Fix")) {
+        round1FixApplied = true;
       }
 
       return { ok: true, result: "done", structuredOutput: null, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
@@ -386,27 +396,40 @@ describe("runSpecComplianceLoop", () => {
     const result = await runSpecComplianceLoop(["REQ-01", "REQ-02"], ctx);
 
     expect(result.converged).toBe(true);
-    expect(result.roundsCompleted).toBe(2);
-    expect(result.gapHistory).toEqual([2, 1, 0]);
+    // Incremental loop fixes the gap within round 1, so converges in 1 round
+    expect(result.roundsCompleted).toBe(1);
+    expect(result.gapHistory).toEqual([2, 0]);
     expect(result.remainingGaps).toEqual([]);
   });
 
   it("TestSpecCompliance_Loop_NotConverging", async () => {
-    // Gaps stay the same across rounds: [3, 2, 1, 1] -> stops at round 3 (stuck)
-    let fixRounds = 0;
+    // Incremental loop: REQ-01 never fixes, REQ-02 fixes in round 1
+    // Round 1: batch shows 2 gaps (REQ-01, REQ-02). Fix REQ-01 fails verify -> deferred.
+    //   Fix REQ-02 succeeds. Gap count goes to 1.
+    // Round 2: batch shows 1 gap (REQ-01). Fix REQ-01 fails verify -> deferred.
+    //   Gap count stays at 1. (1 === 1 -> not converging)
+    let req02Fixed = false;
 
     const { ctx } = makeMockContext({
       maxComplianceRounds: 5,
     });
 
+    // Add execFn for git operations
+    (ctx as any).execFn = (cmd: string) => {
+      if (cmd.includes("rev-parse")) return "abc123";
+      if (cmd.includes("reset --hard")) return "";
+      if (cmd.includes("git add")) return "";
+      return "";
+    };
+
     (ctx.stepRunnerContext as any).executeQueryFn = async (opts: any) => {
       const prompt = opts.prompt as string;
 
-      // Handle batch verification
+      // Handle batch verification (at round start)
       if (prompt.includes("Verify whether each of the following requirements")) {
         const verdicts = [
           { id: "REQ-01", passed: false, gapDescription: "Still broken" },
-          { id: "REQ-02", passed: fixRounds > 0, gapDescription: fixRounds > 0 ? "" : "Needs fix" },
+          { id: "REQ-02", passed: req02Fixed, gapDescription: req02Fixed ? "" : "Needs fix" },
           { id: "REQ-03", passed: true, gapDescription: "" },
         ];
         return {
@@ -418,16 +441,16 @@ describe("runSpecComplianceLoop", () => {
         };
       }
 
-      // Handle individual verification (fallback)
+      // Handle individual verification (after fix)
       if (prompt.includes("Verify whether requirement")) {
         if (prompt.includes("REQ-01")) return { ok: true, result: "", structuredOutput: { passed: false, gapDescription: "Still broken" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
-        if (prompt.includes("REQ-02")) return { ok: true, result: "", structuredOutput: { passed: fixRounds > 0, gapDescription: fixRounds > 0 ? "" : "Needs fix" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+        if (prompt.includes("REQ-02")) return { ok: true, result: "", structuredOutput: { passed: req02Fixed, gapDescription: req02Fixed ? "" : "Needs fix" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
         return { ok: true, result: "", structuredOutput: { passed: true, gapDescription: "" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
       }
 
-      // Fix step (batch or individual)
-      if (prompt.includes("Fix") && prompt.includes("compliance")) {
-        fixRounds++;
+      // Fix step — REQ-02 gets fixed, REQ-01 never does
+      if (prompt.includes("INCREMENTAL FIX") && prompt.includes("REQ-02")) {
+        req02Fixed = true;
       }
 
       return { ok: true, result: "done", structuredOutput: null, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
@@ -439,21 +462,29 @@ describe("runSpecComplianceLoop", () => {
     );
 
     expect(result.converged).toBe(false);
-    // Round 1: 2 gaps (REQ-01, REQ-02) -> fix -> Round 2: 1 gap (REQ-01) -> fix -> Round 3: 1 gap (REQ-01) -> stopped (1 === 1)
     expect(result.gapHistory[0]).toBe(3); // baseline
-    expect(result.gapHistory[1]).toBe(2); // round 1: REQ-01 + REQ-02
-    expect(result.gapHistory[2]).toBe(1); // round 2: REQ-01 only
-    // Round 3 shows 1 gap again -- not converging (1 === 1)
+    // Round 1: REQ-01 deferred (fix fails verify), REQ-02 fixed -> 1 gap remains
+    expect(result.gapHistory[1]).toBe(1);
+    // Round 2: REQ-01 deferred again -> 1 gap remains (1 === 1 -> not converging)
+    expect(result.gapHistory[2]).toBe(1);
     expect(result.remainingGaps).toContain("REQ-01");
   });
 
   it("TestSpecCompliance_Loop_MaxRoundsExhausted", async () => {
-    // Set max rounds to 2, gaps keep decreasing but don't reach 0
+    // Set max rounds to 2, REQ-01 never fixes, REQ-02 fixes in round 1
     const { ctx } = makeMockContext({
       maxComplianceRounds: 2,
     });
 
-    let fixRounds = 0;
+    // Add execFn for git operations
+    (ctx as any).execFn = (cmd: string) => {
+      if (cmd.includes("rev-parse")) return "abc123";
+      if (cmd.includes("reset --hard")) return "";
+      if (cmd.includes("git add")) return "";
+      return "";
+    };
+
+    let req02Fixed = false;
 
     (ctx.stepRunnerContext as any).executeQueryFn = async (opts: any) => {
       const prompt = opts.prompt as string;
@@ -462,7 +493,7 @@ describe("runSpecComplianceLoop", () => {
       if (prompt.includes("Verify whether each of the following requirements")) {
         const verdicts = [
           { id: "REQ-01", passed: false, gapDescription: "Persistent issue" },
-          { id: "REQ-02", passed: fixRounds > 0, gapDescription: fixRounds > 0 ? "" : "Fixable" },
+          { id: "REQ-02", passed: req02Fixed, gapDescription: req02Fixed ? "" : "Fixable" },
           { id: "REQ-03", passed: true, gapDescription: "" },
         ];
         return {
@@ -474,16 +505,16 @@ describe("runSpecComplianceLoop", () => {
         };
       }
 
-      // Handle individual verification (fallback + final re-verify)
+      // Handle individual verification (after fix)
       if (prompt.includes("Verify whether requirement")) {
         if (prompt.includes("REQ-01")) return { ok: true, result: "", structuredOutput: { passed: false, gapDescription: "Persistent issue" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
-        if (prompt.includes("REQ-02")) return { ok: true, result: "", structuredOutput: { passed: fixRounds > 0, gapDescription: fixRounds > 0 ? "" : "Fixable" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+        if (prompt.includes("REQ-02")) return { ok: true, result: "", structuredOutput: { passed: req02Fixed, gapDescription: req02Fixed ? "" : "Fixable" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
         return { ok: true, result: "", structuredOutput: { passed: true, gapDescription: "" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
       }
 
-      // Fix step (batch or individual)
-      if (prompt.includes("Fix") && prompt.includes("compliance")) {
-        fixRounds++;
+      // Fix step — REQ-02 gets fixed, REQ-01 never does
+      if (prompt.includes("INCREMENTAL FIX") && prompt.includes("REQ-02")) {
+        req02Fixed = true;
       }
 
       return { ok: true, result: "done", structuredOutput: null, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
@@ -495,9 +526,10 @@ describe("runSpecComplianceLoop", () => {
     );
 
     expect(result.converged).toBe(false);
-    expect(result.roundsCompleted).toBe(2);
+    // Max rounds is 2, but not converging detected in round 2 (1 === 1)
     expect(result.gapHistory[0]).toBe(3); // baseline
-    // Each round should show decreasing gaps
+    // Round 1: REQ-01 deferred, REQ-02 fixed -> 1 gap
+    expect(result.gapHistory[1]).toBe(1);
     expect(result.remainingGaps).toContain("REQ-01");
   });
 
@@ -550,29 +582,53 @@ describe("runSpecComplianceLoop", () => {
     expect(verifyPrompt).toContain("Full Requirements Document");
   });
 
-  it("TestSpecCompliance_Loop_TargetedFixesWhenStuck", async () => {
-    // When batch fixes don't make progress, the loop should try targeted individual fixes
-    let round = 0;
-    let targetedFixCalled = false;
+  it("TestSpecCompliance_Loop_RegressionCausesRevert", async () => {
+    // Incremental loop: Fix REQ-01 causes regression on REQ-02, should revert
+    const gitCommands: string[] = [];
     const { ctx } = makeMockContext({ maxComplianceRounds: 5 });
+
+    // Add execFn that records git commands and resets fix state on revert
+    (ctx as any).execFn = (cmd: string) => {
+      gitCommands.push(cmd);
+      if (cmd.includes("rev-parse")) return "abc123";
+      if (cmd.includes("reset --hard")) {
+        fixApplied = false;
+        return "";
+      }
+      if (cmd.includes("git add")) return "";
+      return "";
+    };
+
+    let fixApplied = false;
 
     (ctx.stepRunnerContext as any).executeQueryFn = async (opts: any) => {
       const prompt = opts.prompt as string;
 
+      // Batch verification at round start: both always fail
       if (prompt.includes("Verify whether each of the following requirements")) {
-        round++;
-        // Always return 2 failing requirements
         return {
           ok: true,
-          result: '```json\n[{"id":"REQ-01","passed":false,"gapDescription":"Broken"},{"id":"REQ-02","passed":false,"gapDescription":"Also broken"}]\n```',
+          result: '```json\n[{"id":"REQ-01","passed":false,"gapDescription":"Broken"},{"id":"REQ-02","passed":' + (!fixApplied) + ',"gapDescription":"' + (fixApplied ? "Regressed" : "") + '"}]\n```',
           structuredOutput: null,
           cost: { totalCostUsd: 0.01 },
           sessionId: "mock",
         };
       }
 
-      if (prompt.includes("TARGETED FIX")) {
-        targetedFixCalled = true;
+      // Individual verify after fix: REQ-01 passes but REQ-02 regresses
+      if (prompt.includes("Verify whether requirement")) {
+        if (prompt.includes("REQ-01")) {
+          return { ok: true, result: "", structuredOutput: { passed: fixApplied, gapDescription: fixApplied ? "" : "Broken" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+        }
+        if (prompt.includes("REQ-02")) {
+          // After REQ-01 fix is applied, REQ-02 regresses
+          return { ok: true, result: "", structuredOutput: { passed: !fixApplied, gapDescription: fixApplied ? "Regressed from REQ-01 fix" : "" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+        }
+      }
+
+      // Fix step for REQ-01
+      if (prompt.includes("INCREMENTAL FIX") && prompt.includes("REQ-01")) {
+        fixApplied = true;
       }
 
       return { ok: true, result: "done", structuredOutput: null, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
@@ -580,43 +636,51 @@ describe("runSpecComplianceLoop", () => {
 
     const result = await runSpecComplianceLoop(["REQ-01", "REQ-02"], ctx);
 
-    // Should have tried targeted fixes
-    expect(targetedFixCalled).toBe(true);
-    // Should still be non-converging since nothing actually fixed
+    // Should have attempted git reset --hard (revert)
+    const revertCmds = gitCommands.filter((c) => c.includes("reset --hard"));
+    expect(revertCmds.length).toBeGreaterThan(0);
+    // Should still be non-converging since fix always causes regression
     expect(result.converged).toBe(false);
     expect(result.remainingGaps).toContain("REQ-01");
   });
 
   it("TestSpecCompliance_Loop_GapFixIncludesRequirementsDoc", async () => {
-    // Verify that gap fix prompts include the requirements document
+    // Verify that incremental gap fix prompts include the requirements document
     const capturedPrompts: string[] = [];
-    let fixRound = 0;
+    let fixApplied = false;
     const { ctx } = makeMockContext({ maxComplianceRounds: 2 });
+
+    // Add execFn for git operations
+    (ctx as any).execFn = (cmd: string) => {
+      if (cmd.includes("rev-parse")) return "abc123";
+      if (cmd.includes("git add")) return "";
+      return "";
+    };
 
     (ctx.stepRunnerContext as any).executeQueryFn = async (opts: any) => {
       const prompt = opts.prompt as string;
       capturedPrompts.push(prompt);
 
       if (prompt.includes("Verify whether each of the following requirements")) {
-        fixRound++;
-        if (fixRound === 1) {
-          return {
-            ok: true,
-            result: '```json\n[{"id":"REQ-01","passed":false,"gapDescription":"Missing feature"}]\n```',
-            structuredOutput: null,
-            cost: { totalCostUsd: 0.01 },
-            sessionId: "mock",
-          };
-        }
-        // Second round: pass
         return {
           ok: true,
-          result: '```json\n[{"id":"REQ-01","passed":true,"gapDescription":""}]\n```',
+          result: '```json\n[{"id":"REQ-01","passed":' + fixApplied + ',"gapDescription":"' + (fixApplied ? "" : "Missing feature") + '"}]\n```',
           structuredOutput: null,
           cost: { totalCostUsd: 0.01 },
           sessionId: "mock",
         };
       }
+
+      // Individual verify after fix
+      if (prompt.includes("Verify whether requirement") && prompt.includes("REQ-01")) {
+        return { ok: true, result: "", structuredOutput: { passed: fixApplied, gapDescription: fixApplied ? "" : "Missing feature" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+      }
+
+      // Fix step
+      if (prompt.includes("INCREMENTAL FIX")) {
+        fixApplied = true;
+      }
+
       return { ok: true, result: "done", structuredOutput: null, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
     };
 
@@ -632,10 +696,11 @@ describe("runSpecComplianceLoop", () => {
 
     await runSpecComplianceLoop(["REQ-01"], ctx);
 
-    const fixPrompt = capturedPrompts.find((p) => p.includes("Fix ALL spec compliance gaps"));
+    // The incremental fix prompt should include requirements document
+    const fixPrompt = capturedPrompts.find((p) => p.includes("INCREMENTAL FIX"));
     expect(fixPrompt).toBeDefined();
     expect(fixPrompt).toContain("Feature");
-    expect(fixPrompt).toContain("Full Requirements Document");
+    expect(fixPrompt).toContain("Requirements Document");
   });
 
   it("TestSpecCompliance_ReadRequirementsDoc_ReturnsContent", () => {
@@ -671,5 +736,529 @@ describe("runSpecComplianceLoop", () => {
     const initialState = makeState();
     const firstUpdate = stateUpdates[0](initialState);
     expect(firstUpdate.status).toBe("wave_3");
+  });
+});
+
+// ============================================================================
+// execGitCommand tests
+// ============================================================================
+
+describe("execGitCommand", () => {
+  it("TestIncrementalCompliance_ExecGitCommand_UsesExecFn", () => {
+    const mockExecFn = vi.fn().mockReturnValue("abc123");
+    const ctx = {
+      execFn: mockExecFn,
+    } as unknown as PipelineContext;
+
+    const result = execGitCommand("git rev-parse HEAD", ctx);
+
+    expect(mockExecFn).toHaveBeenCalledWith("git rev-parse HEAD");
+    expect(result).toBe("abc123");
+  });
+});
+
+// ============================================================================
+// runIncrementalComplianceLoop tests
+// ============================================================================
+
+describe("runIncrementalComplianceLoop", () => {
+  /**
+   * Helper to create a mock context with incremental compliance support.
+   * Includes execFn for git commands that records all calls.
+   */
+  function makeIncrementalMockContext(options: {
+    maxComplianceRounds?: number;
+    executeQueryFn: (opts: any) => Promise<any>;
+  }): {
+    ctx: PipelineContext;
+    gitCommands: string[];
+    stateUpdates: Array<(state: ForgeState) => ForgeState>;
+  } {
+    const gitCommands: string[] = [];
+    const stateUpdates: Array<(state: ForgeState) => ForgeState> = [];
+    let currentState = makeState();
+
+    const stepRunnerContext: StepRunnerContext = {
+      config: makeConfig({ maxComplianceRounds: options.maxComplianceRounds ?? 5 }),
+      stateManager: {
+        load: () => currentState,
+        update: async (updater: (state: ForgeState) => ForgeState) => {
+          stateUpdates.push(updater);
+          currentState = updater(currentState);
+          return currentState;
+        },
+      } as any,
+      executeQueryFn: options.executeQueryFn,
+    };
+
+    const stateManager = {
+      load: () => currentState,
+      update: async (updater: (state: ForgeState) => ForgeState) => {
+        stateUpdates.push(updater);
+        currentState = updater(currentState);
+        return currentState;
+      },
+    } as any;
+
+    const ctx: PipelineContext = {
+      config: makeConfig({ maxComplianceRounds: options.maxComplianceRounds ?? 5 }),
+      stateManager,
+      stepRunnerContext,
+      costController: {
+        checkBudget: () => {},
+        recordStepCost: () => {},
+      } as any,
+      runPhaseFn: async () => ({
+        status: "completed" as const,
+        phaseNumber: 1,
+        requirementsCompleted: [],
+        testResults: { passed: 0, failed: 0, total: 0 },
+        verificationReport: { checks: [], allPassed: true },
+        costUsd: 0,
+      }),
+      execFn: (cmd: string) => {
+        gitCommands.push(cmd);
+        if (cmd.includes("rev-parse")) return "abc123def456";
+        if (cmd.includes("reset --hard")) return "";
+        if (cmd.includes("git add")) return "";
+        return "";
+      },
+    };
+
+    return { ctx, gitCommands, stateUpdates };
+  }
+
+  it("TestIncrementalCompliance_FixSucceeds_CommitsChanges", async () => {
+    let fixApplied = false;
+
+    const { ctx, gitCommands } = makeIncrementalMockContext({
+      executeQueryFn: async (opts: any) => {
+        const prompt = opts.prompt as string;
+
+        // Batch verify at round start: 1 gap
+        if (prompt.includes("Verify whether each of the following requirements")) {
+          return {
+            ok: true,
+            result: '```json\n[{"id":"REQ-01","passed":' + fixApplied + ',"gapDescription":"' + (fixApplied ? "" : "Missing feature") + '"},{"id":"REQ-02","passed":true,"gapDescription":""}]\n```',
+            structuredOutput: null,
+            cost: { totalCostUsd: 0.01 },
+            sessionId: "mock",
+          };
+        }
+
+        // Individual verify after fix
+        if (prompt.includes("Verify whether requirement") && prompt.includes("REQ-01")) {
+          return { ok: true, result: "", structuredOutput: { passed: fixApplied, gapDescription: fixApplied ? "" : "Missing" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+        }
+        if (prompt.includes("Verify whether requirement") && prompt.includes("REQ-02")) {
+          return { ok: true, result: "", structuredOutput: { passed: true, gapDescription: "" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+        }
+
+        // Fix step
+        if (prompt.includes("INCREMENTAL FIX")) {
+          fixApplied = true;
+        }
+
+        return { ok: true, result: "done", structuredOutput: null, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+      },
+    });
+
+    const result = await runIncrementalComplianceLoop(["REQ-01", "REQ-02"], ctx);
+
+    expect(result.converged).toBe(true);
+    expect(result.roundsCompleted).toBe(1);
+    expect(result.gapHistory).toEqual([2, 0]);
+
+    // Should have committed (git add + commit)
+    const commitCmds = gitCommands.filter((c) => c.includes("git add"));
+    expect(commitCmds.length).toBeGreaterThan(0);
+
+    // Should NOT have reverted
+    const revertCmds = gitCommands.filter((c) => c.includes("reset --hard"));
+    expect(revertCmds.length).toBe(0);
+  });
+
+  it("TestIncrementalCompliance_FixCausesRegression_Reverts", async () => {
+    let req01FixApplied = false;
+
+    const { ctx, gitCommands } = makeIncrementalMockContext({
+      executeQueryFn: async (opts: any) => {
+        const prompt = opts.prompt as string;
+
+        // Batch verify: REQ-01 fails, REQ-02 passes
+        if (prompt.includes("Verify whether each of the following requirements")) {
+          return {
+            ok: true,
+            result: '```json\n[{"id":"REQ-01","passed":false,"gapDescription":"Broken"},{"id":"REQ-02","passed":' + (!req01FixApplied) + ',"gapDescription":"' + (req01FixApplied ? "Regressed" : "") + '"}]\n```',
+            structuredOutput: null,
+            cost: { totalCostUsd: 0.01 },
+            sessionId: "mock",
+          };
+        }
+
+        // Individual verify: REQ-01 passes after fix, but REQ-02 regresses
+        if (prompt.includes("Verify whether requirement") && prompt.includes("REQ-01")) {
+          return { ok: true, result: "", structuredOutput: { passed: req01FixApplied, gapDescription: req01FixApplied ? "" : "Broken" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+        }
+        if (prompt.includes("Verify whether requirement") && prompt.includes("REQ-02")) {
+          return { ok: true, result: "", structuredOutput: { passed: !req01FixApplied, gapDescription: req01FixApplied ? "Regressed" : "" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+        }
+
+        // Fix REQ-01
+        if (prompt.includes("INCREMENTAL FIX") && prompt.includes("REQ-01")) {
+          req01FixApplied = true;
+        }
+
+        return { ok: true, result: "done", structuredOutput: null, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+      },
+    });
+
+    // Override execFn to reset fix flag on revert
+    (ctx as any).execFn = (cmd: string) => {
+      gitCommands.push(cmd);
+      if (cmd.includes("rev-parse")) return "abc123def456";
+      if (cmd.includes("reset --hard")) {
+        req01FixApplied = false;
+        return "";
+      }
+      if (cmd.includes("git add")) return "";
+      return "";
+    };
+
+    const result = await runIncrementalComplianceLoop(["REQ-01", "REQ-02"], ctx);
+
+    // Should have reverted (git reset --hard)
+    const revertCmds = gitCommands.filter((c) => c.includes("reset --hard"));
+    expect(revertCmds.length).toBeGreaterThan(0);
+
+    // REQ-01 should be in remaining gaps (deferred due to regression)
+    expect(result.remainingGaps).toContain("REQ-01");
+    expect(result.converged).toBe(false);
+  });
+
+  it("TestIncrementalCompliance_MultipleGaps_MixedResults", async () => {
+    // 3 gaps: REQ-01 fixes OK, REQ-02 causes regression on REQ-04 (reverted), REQ-03 fixes OK
+    let req01Fixed = false;
+    let req02FixAttempted = false;
+    let req03Fixed = false;
+
+    const { ctx, gitCommands } = makeIncrementalMockContext({
+      executeQueryFn: async (opts: any) => {
+        const prompt = opts.prompt as string;
+
+        // Batch verify — check which IDs are being asked about
+        if (prompt.includes("Verify whether each of the following requirements")) {
+          // Build verdicts based on which IDs appear in the prompt
+          const verdicts: Array<{ id: string; passed: boolean; gapDescription: string }> = [];
+          if (prompt.includes("REQ-01")) verdicts.push({ id: "REQ-01", passed: req01Fixed, gapDescription: req01Fixed ? "" : "Gap 1" });
+          if (prompt.includes("REQ-02")) verdicts.push({ id: "REQ-02", passed: false, gapDescription: "Gap 2" });
+          if (prompt.includes("REQ-03")) verdicts.push({ id: "REQ-03", passed: req03Fixed, gapDescription: req03Fixed ? "" : "Gap 3" });
+          if (prompt.includes("REQ-04")) {
+            // REQ-04 regresses when REQ-02 fix is attempted
+            verdicts.push({ id: "REQ-04", passed: !req02FixAttempted, gapDescription: req02FixAttempted ? "Regressed" : "" });
+          }
+          return {
+            ok: true,
+            result: "```json\n" + JSON.stringify(verdicts) + "\n```",
+            structuredOutput: null,
+            cost: { totalCostUsd: 0.01 },
+            sessionId: "mock",
+          };
+        }
+
+        // Individual verify after fix
+        if (prompt.includes("Verify whether requirement")) {
+          if (prompt.includes("REQ-01")) return { ok: true, result: "", structuredOutput: { passed: req01Fixed, gapDescription: req01Fixed ? "" : "Gap 1" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+          if (prompt.includes("REQ-02")) return { ok: true, result: "", structuredOutput: { passed: true, gapDescription: "" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+          if (prompt.includes("REQ-03")) return { ok: true, result: "", structuredOutput: { passed: req03Fixed, gapDescription: req03Fixed ? "" : "Gap 3" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+          if (prompt.includes("REQ-04")) return { ok: true, result: "", structuredOutput: { passed: !req02FixAttempted, gapDescription: req02FixAttempted ? "Regressed" : "" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+          return { ok: true, result: "", structuredOutput: { passed: true, gapDescription: "" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+        }
+
+        // Fix steps
+        if (prompt.includes("INCREMENTAL FIX") && prompt.includes("REQ-01")) req01Fixed = true;
+        if (prompt.includes("INCREMENTAL FIX") && prompt.includes("REQ-02")) req02FixAttempted = true;
+        if (prompt.includes("INCREMENTAL FIX") && prompt.includes("REQ-03")) req03Fixed = true;
+
+        return { ok: true, result: "done", structuredOutput: null, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+      },
+    });
+
+    // Override execFn to handle revert properly
+    (ctx as any).execFn = (cmd: string) => {
+      gitCommands.push(cmd);
+      if (cmd.includes("rev-parse")) return "abc123def456";
+      if (cmd.includes("reset --hard")) {
+        // Revert REQ-02 fix
+        req02FixAttempted = false;
+        return "";
+      }
+      if (cmd.includes("git add")) return "";
+      return "";
+    };
+
+    const result = await runIncrementalComplianceLoop(
+      ["REQ-01", "REQ-02", "REQ-03", "REQ-04"],
+      ctx,
+    );
+
+    // REQ-01 and REQ-03 fixed, REQ-02 deferred (caused regression on REQ-04)
+    expect(result.gapHistory[0]).toBe(4); // baseline
+    expect(result.gapHistory[1]).toBe(1); // after round 1: only REQ-02 remains
+
+    // Should have both commits and reverts
+    const commitCmds = gitCommands.filter((c) => c.includes("git add"));
+    expect(commitCmds.length).toBeGreaterThanOrEqual(2); // REQ-01 and REQ-03
+    const revertCmds = gitCommands.filter((c) => c.includes("reset --hard"));
+    expect(revertCmds.length).toBeGreaterThanOrEqual(1); // REQ-02
+  });
+
+  it("TestIncrementalCompliance_MonotonicGapDecrease", async () => {
+    // Round 1: 3 gaps, 2 fixed (REQ-03 deferred because fix doesn't verify). Round 2: 1 gap, fixed.
+    let fixedSet = new Set<string>();
+    // Track round starts by counting batch verifies that include all 3 requirements
+    let roundNumber = 0;
+
+    const { ctx } = makeIncrementalMockContext({
+      executeQueryFn: async (opts: any) => {
+        const prompt = opts.prompt as string;
+
+        if (prompt.includes("Verify whether each of the following requirements")) {
+          // Only count as a new round when all 3 requirements are in the prompt
+          const isFullRoundVerify = prompt.includes("REQ-01") && prompt.includes("REQ-02") && prompt.includes("REQ-03");
+          if (isFullRoundVerify) roundNumber++;
+
+          const verdicts: Array<{ id: string; passed: boolean; gapDescription: string }> = [];
+          for (const id of ["REQ-01", "REQ-02", "REQ-03"]) {
+            if (prompt.includes(id)) {
+              verdicts.push({ id, passed: fixedSet.has(id), gapDescription: fixedSet.has(id) ? "" : "Gap" });
+            }
+          }
+          return {
+            ok: true,
+            result: "```json\n" + JSON.stringify(verdicts) + "\n```",
+            structuredOutput: null,
+            cost: { totalCostUsd: 0.01 },
+            sessionId: "mock",
+          };
+        }
+
+        if (prompt.includes("Verify whether requirement")) {
+          for (const id of ["REQ-01", "REQ-02", "REQ-03"]) {
+            if (prompt.includes(id)) {
+              const passed = fixedSet.has(id);
+              return { ok: true, result: "", structuredOutput: { passed, gapDescription: passed ? "" : "Gap" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+            }
+          }
+        }
+
+        // Fix: REQ-01 and REQ-02 fix immediately. REQ-03 only fixes in round 2.
+        if (prompt.includes("INCREMENTAL FIX")) {
+          if (prompt.includes("REQ-01")) fixedSet.add("REQ-01");
+          if (prompt.includes("REQ-02")) fixedSet.add("REQ-02");
+          // REQ-03 fix only works in round 2+
+          if (prompt.includes("REQ-03") && roundNumber >= 2) {
+            fixedSet.add("REQ-03");
+          }
+        }
+
+        return { ok: true, result: "done", structuredOutput: null, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+      },
+    });
+
+    const result = await runIncrementalComplianceLoop(["REQ-01", "REQ-02", "REQ-03"], ctx);
+
+    expect(result.converged).toBe(true);
+    expect(result.gapHistory[0]).toBe(3); // baseline
+    expect(result.gapHistory[1]).toBe(1); // round 1: REQ-03 deferred
+    expect(result.gapHistory[2]).toBe(0); // round 2: REQ-03 fixed
+    expect(result.roundsCompleted).toBe(2);
+  });
+
+  it("TestIncrementalCompliance_NotConverging_StopsLoop", async () => {
+    // All fixes always fail verification — gap count never decreases
+    const { ctx } = makeIncrementalMockContext({
+      maxComplianceRounds: 3,
+      executeQueryFn: async (opts: any) => {
+        const prompt = opts.prompt as string;
+
+        if (prompt.includes("Verify whether each of the following requirements")) {
+          return {
+            ok: true,
+            result: '```json\n[{"id":"REQ-01","passed":false,"gapDescription":"Always broken"},{"id":"REQ-02","passed":false,"gapDescription":"Also broken"}]\n```',
+            structuredOutput: null,
+            cost: { totalCostUsd: 0.01 },
+            sessionId: "mock",
+          };
+        }
+
+        if (prompt.includes("Verify whether requirement")) {
+          return { ok: true, result: "", structuredOutput: { passed: false, gapDescription: "Still broken" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+        }
+
+        return { ok: true, result: "done", structuredOutput: null, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+      },
+    });
+
+    const result = await runIncrementalComplianceLoop(["REQ-01", "REQ-02"], ctx);
+
+    expect(result.converged).toBe(false);
+    // Round 1: 2 gaps, both deferred -> 2 gaps. Round 2: 2 gaps again (2 === 2 -> not converging)
+    expect(result.gapHistory[0]).toBe(2); // baseline
+    expect(result.gapHistory[1]).toBe(2); // round 1: all deferred
+    expect(result.gapHistory[2]).toBe(2); // round 2: all deferred
+    expect(result.remainingGaps).toContain("REQ-01");
+    expect(result.remainingGaps).toContain("REQ-02");
+  });
+});
+
+// ============================================================================
+// Scenario: Full incremental compliance flow
+// ============================================================================
+
+describe("Scenario: Full incremental compliance flow", () => {
+  it("TestScenario_IncrementalCompliance_EndToEnd", async () => {
+    // 5 requirements: REQ-01, REQ-02 pass initially. REQ-03, REQ-04, REQ-05 fail.
+    // Round 1: Fix REQ-03 succeeds. Fix REQ-04 causes REQ-01 regression -> reverted.
+    //   Fix REQ-05 succeeds. -> 1 gap remains (REQ-04).
+    // Round 2: Fix REQ-04 succeeds (no regression this time). -> 0 gaps.
+    const fixedSet = new Set<string>();
+    let req04FixAttempts = 0;
+    let req04FixActive = false;
+    const gitCommands: string[] = [];
+
+    const stateUpdates: Array<(state: ForgeState) => ForgeState> = [];
+    let currentState = makeState();
+
+    const mockExecQuery = async (opts: any) => {
+      const prompt = opts.prompt as string;
+
+      if (prompt.includes("Verify whether each of the following requirements")) {
+        // Build verdicts only for IDs in the prompt
+        const verdicts: Array<{ id: string; passed: boolean; gapDescription: string }> = [];
+        for (const id of ["REQ-01", "REQ-02", "REQ-03", "REQ-04", "REQ-05"]) {
+          if (prompt.includes(id)) {
+            if (id === "REQ-01") {
+              // REQ-01 regresses only when req04FixActive is true
+              verdicts.push({ id, passed: !req04FixActive, gapDescription: req04FixActive ? "Regressed" : "" });
+            } else if (id === "REQ-02") {
+              verdicts.push({ id, passed: true, gapDescription: "" });
+            } else {
+              verdicts.push({ id, passed: fixedSet.has(id), gapDescription: fixedSet.has(id) ? "" : `Gap ${id}` });
+            }
+          }
+        }
+        return {
+          ok: true,
+          result: "```json\n" + JSON.stringify(verdicts) + "\n```",
+          structuredOutput: null,
+          cost: { totalCostUsd: 0.01 },
+          sessionId: "mock",
+        };
+      }
+
+      if (prompt.includes("Verify whether requirement")) {
+        for (const id of ["REQ-01", "REQ-02", "REQ-03", "REQ-04", "REQ-05"]) {
+          if (prompt.includes(id)) {
+            if (id === "REQ-01") {
+              return { ok: true, result: "", structuredOutput: { passed: !req04FixActive, gapDescription: req04FixActive ? "Regressed" : "" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+            }
+            if (id === "REQ-02") {
+              return { ok: true, result: "", structuredOutput: { passed: true, gapDescription: "" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+            }
+            const passed = fixedSet.has(id);
+            return { ok: true, result: "", structuredOutput: { passed, gapDescription: passed ? "" : "Gap" }, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+          }
+        }
+      }
+
+      // Fix steps
+      if (prompt.includes("INCREMENTAL FIX")) {
+        if (prompt.includes("REQ-03")) fixedSet.add("REQ-03");
+        if (prompt.includes("REQ-04")) {
+          fixedSet.add("REQ-04");
+          req04FixAttempts++;
+          // Only first attempt causes regression on REQ-01
+          if (req04FixAttempts === 1) {
+            req04FixActive = true;
+          }
+        }
+        if (prompt.includes("REQ-05")) fixedSet.add("REQ-05");
+      }
+
+      return { ok: true, result: "done", structuredOutput: null, cost: { totalCostUsd: 0.01 }, sessionId: "mock" };
+    };
+
+    const stepRunnerContext: StepRunnerContext = {
+      config: makeConfig({ maxComplianceRounds: 5 }),
+      stateManager: {
+        load: () => currentState,
+        update: async (updater: (state: ForgeState) => ForgeState) => {
+          stateUpdates.push(updater);
+          currentState = updater(currentState);
+          return currentState;
+        },
+      } as any,
+      executeQueryFn: mockExecQuery,
+    };
+
+    const ctx: PipelineContext = {
+      config: makeConfig({ maxComplianceRounds: 5 }),
+      stateManager: {
+        load: () => currentState,
+        update: async (updater: (state: ForgeState) => ForgeState) => {
+          stateUpdates.push(updater);
+          currentState = updater(currentState);
+          return currentState;
+        },
+      } as any,
+      stepRunnerContext,
+      costController: { checkBudget: () => {}, recordStepCost: () => {} } as any,
+      runPhaseFn: async () => ({
+        status: "completed" as const,
+        phaseNumber: 1,
+        requirementsCompleted: [],
+        testResults: { passed: 0, failed: 0, total: 0 },
+        verificationReport: { checks: [], allPassed: true },
+        costUsd: 0,
+      }),
+      execFn: (cmd: string) => {
+        gitCommands.push(cmd);
+        if (cmd.includes("rev-parse")) return "abc123";
+        if (cmd.includes("reset --hard")) {
+          // Revert REQ-04 fix
+          fixedSet.delete("REQ-04");
+          req04FixActive = false;
+          return "";
+        }
+        if (cmd.includes("git add")) return "";
+        return "";
+      },
+    };
+
+    const result = await runSpecComplianceLoop(
+      ["REQ-01", "REQ-02", "REQ-03", "REQ-04", "REQ-05"],
+      ctx,
+    );
+
+    // Should converge
+    expect(result.converged).toBe(true);
+
+    // Gap history: baseline=5, round 1=1 (REQ-04 deferred), round 2=0
+    expect(result.gapHistory[0]).toBe(5);
+    expect(result.gapHistory[1]).toBe(1); // REQ-03 + REQ-05 fixed, REQ-04 reverted
+    expect(result.gapHistory[2]).toBe(0); // REQ-04 fixed in round 2
+
+    expect(result.roundsCompleted).toBe(2);
+    expect(result.remainingGaps).toEqual([]);
+
+    // Verify git operations: at least 3 commits (REQ-03, REQ-05, REQ-04) and 1 revert
+    const commitCmds = gitCommands.filter((c) => c.includes("git add"));
+    expect(commitCmds.length).toBeGreaterThanOrEqual(3);
+    const revertCmds = gitCommands.filter((c) => c.includes("reset --hard"));
+    expect(revertCmds.length).toBeGreaterThanOrEqual(1);
+
+    // Verify state was updated
+    expect(stateUpdates.length).toBeGreaterThan(0);
   });
 });

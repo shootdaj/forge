@@ -98,3 +98,14 @@
 | 10. Android Emulator Lifecycle | v1.1 | 2/2 | Complete | 2026-03-28 |
 | 11. Maestro UAT Integration | v1.1 | 3/3 | Complete | 2026-03-28 |
 | 12. iOS Simulator Support | v1.1 | 2/2 | Complete | 2026-03-28 |
+
+### Phase 13: Incremental Spec Compliance — fix-one-verify-one loop with git rollback and regression-aware prompts
+
+**Goal:** Replace batched spec compliance loop with incremental fix-one-verify-one approach that prevents regressions
+**Requirements**: N/A (internal improvement)
+**Depends on:** Phase 12
+**Plans:** 2/2
+
+Plans:
+- [x] 13-01: Incremental compliance engine + regression-aware prompts — completed 2026-04-08
+- [x] 13-02: Tests for incremental compliance engine — completed 2026-04-08
