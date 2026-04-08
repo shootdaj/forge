@@ -175,6 +175,7 @@ export const ForgeStateSchema = z.object({
   emulator: z.any().default({}).pipe(EmulatorStateSchema),
   simulator: z.any().default({}).pipe(SimulatorStateSchema),
   total_budget_used: z.number().default(0),
+  last_heartbeat: z.string().optional(),
 });
 
 /**
@@ -297,4 +298,5 @@ export interface ForgeState {
     startedAt?: string;
   };
   totalBudgetUsed: number;
+  lastHeartbeat?: string;
 }
