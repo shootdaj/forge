@@ -104,6 +104,16 @@ const NotificationsConfigSchema = z.object({
 });
 
 /**
+ * Session watchdog configuration schema.
+ * Controls inactivity timeout, heartbeat, and retry behavior for SDK sessions.
+ */
+const WatchdogConfigSchema = z.object({
+  inactivity_timeout_seconds: z.number().int().min(10).default(120),
+  heartbeat_interval_seconds: z.number().int().min(5).default(30),
+  max_retries: z.number().int().min(0).default(2),
+});
+
+/**
  * Root config schema for forge.config.json.
  *
  * All fields have sensible defaults so even an empty `{}` config is valid.
@@ -126,6 +136,7 @@ export const ForgeConfigSchema = z.object({
   frontend: z.any().default({}).pipe(FrontendConfigSchema),
   deployment: z.any().default({}).pipe(DeploymentConfigSchema),
   notifications: z.any().default({}).pipe(NotificationsConfigSchema),
+  watchdog: z.any().default({}).pipe(WatchdogConfigSchema),
 });
 
 /**
@@ -199,5 +210,10 @@ export interface ForgeConfig {
     onHumanNeeded: string;
     onPhaseComplete: string;
     onFailure: string;
+  };
+  watchdog: {
+    inactivityTimeoutSeconds: number;
+    heartbeatIntervalSeconds: number;
+    maxRetries: number;
   };
 }

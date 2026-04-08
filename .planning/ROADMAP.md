@@ -109,3 +109,33 @@
 Plans:
 - [x] 13-01: Incremental compliance engine + regression-aware prompts — completed 2026-04-08
 - [x] 13-02: Tests for incremental compliance engine — completed 2026-04-08
+
+### Phase 14: Live Progress Reporting — real-time status updates during pipeline execution
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 13
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 14 to break down)
+
+### Phase 15: Session Watchdog — detect and recover from stuck SDK sessions with inactivity timeout, auto-retry, and progress heartbeat
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 14
+**Plans:** 0/3 plans executed
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 15 to break down)
+
+### Phase 16: Parallel Gap Fixing — analyze file overlap between gaps, fix independent gaps concurrently, batch non-overlapping fixes for 3-4x speedup while preserving regression safety for overlapping ones
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 15
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd:plan-phase 16 to break down)

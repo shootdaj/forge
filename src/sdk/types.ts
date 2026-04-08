@@ -22,6 +22,7 @@ export type SDKErrorCategory =
   | "max_turns" // maxTurns reached -- partial work may exist
   | "execution_error" // Error during agent execution -- may retry with different approach
   | "structured_output_retry_exceeded" // Agent couldn't produce valid JSON output
+  | "inactivity_timeout" // Session watchdog killed the session due to no activity
   | "unknown"; // Unrecognized error -- log and surface
 
 /**

@@ -8,7 +8,7 @@
  *                      COST-01, COST-02, COST-03, COST-04
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { runStep } from "./step-runner.js";
 import { CostController } from "./cost-controller.js";
 import type { StepRunnerContext, StepOptions } from "./types.js";
@@ -579,5 +579,315 @@ describe("runStep", () => {
     if (result.status === "verified") {
       expect(result.structuredOutput).toEqual({ key: "value", count: 42 });
     }
+  });
+});
+
+// ─── Session Watchdog Integration Tests ───
+
+describe("Session Watchdog Integration", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "forge-watchdog-test-"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("TestStepRunner_WatchdogTimeoutRetriesStep", async () => {
+    let callCount = 0;
+    const mockExecuteQuery = async (): Promise<QueryResult> => {
+      callCount++;
+      if (callCount === 1) {
+        // First call: simulate a hang (never resolve naturally — watchdog will timeout)
+        return new Promise<QueryResult>(() => {});
+      }
+      // Second call: succeed
+      return makeSuccessResult(0.5);
+    };
+
+    const ctx = makeContext(tmpDir, mockExecuteQuery, {
+      watchdog: {
+        inactivityTimeoutSeconds: 1,
+        heartbeatIntervalSeconds: 1,
+        maxRetries: 1,
+      },
+    } as Partial<ForgeConfig>);
+    const costController = new CostController();
+
+    const resultPromise = runStep(
+      "watchdog-retry",
+      {
+        prompt: "Will timeout then succeed",
+        verify: async () => true,
+      },
+      ctx,
+      costController,
+    );
+
+    // Advance past the first timeout (1s = 1000ms)
+    await vi.advanceTimersByTimeAsync(1500);
+    // Second attempt resolves immediately
+    await vi.advanceTimersByTimeAsync(10);
+
+    const result = await resultPromise;
+
+    expect(result.status).toBe("verified");
+    expect(callCount).toBe(2);
+  });
+
+  it("TestStepRunner_WatchdogExhaustsRetries", async () => {
+    // executeQueryFn that always hangs
+    const mockExecuteQuery = async (): Promise<QueryResult> => {
+      return new Promise<QueryResult>(() => {});
+    };
+
+    const ctx = makeContext(tmpDir, mockExecuteQuery, {
+      watchdog: {
+        inactivityTimeoutSeconds: 1,
+        heartbeatIntervalSeconds: 1,
+        maxRetries: 1,
+      },
+    } as Partial<ForgeConfig>);
+    const costController = new CostController();
+
+    const resultPromise = runStep(
+      "watchdog-exhaust",
+      {
+        prompt: "Will always hang",
+        verify: async () => true,
+      },
+      ctx,
+      costController,
+    );
+
+    // First attempt timeout
+    await vi.advanceTimersByTimeAsync(1500);
+    // Second attempt timeout
+    await vi.advanceTimersByTimeAsync(1500);
+
+    const result = await resultPromise;
+
+    expect(result.status).toBe("timed_out");
+    if (result.status === "timed_out") {
+      expect(result.attempts).toBe(2);
+      expect(result.timeoutSeconds).toBe(1);
+      expect(result.error).toContain("timed out");
+    }
+  });
+
+  it("TestStepRunner_HeartbeatEmittedDuringInactivity", async () => {
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    let resolveFn: (value: QueryResult) => void;
+    const mockExecuteQuery = async (): Promise<QueryResult> => {
+      return new Promise<QueryResult>((resolve) => {
+        resolveFn = resolve;
+      });
+    };
+
+    const ctx = makeContext(tmpDir, mockExecuteQuery, {
+      watchdog: {
+        inactivityTimeoutSeconds: 10,
+        heartbeatIntervalSeconds: 1,
+        maxRetries: 0,
+      },
+    } as Partial<ForgeConfig>);
+    const costController = new CostController();
+
+    const resultPromise = runStep(
+      "heartbeat-test",
+      {
+        prompt: "Will emit heartbeats",
+        verify: async () => true,
+      },
+      ctx,
+      costController,
+    );
+
+    // Advance to trigger 2 heartbeats
+    await vi.advanceTimersByTimeAsync(2500);
+
+    // Resolve the query
+    resolveFn!(makeSuccessResult(0.1));
+    await vi.advanceTimersByTimeAsync(10);
+
+    const result = await resultPromise;
+    expect(result.status).toBe("verified");
+
+    // Check heartbeat messages were logged
+    const heartbeatCalls = consoleSpy.mock.calls.filter(
+      (args) => typeof args[0] === "string" && args[0].includes("since last activity"),
+    );
+    expect(heartbeatCalls.length).toBeGreaterThanOrEqual(2);
+    expect(heartbeatCalls[0][0]).toContain("[forge]");
+    expect(heartbeatCalls[0][0]).toContain("heartbeat-test");
+
+    consoleSpy.mockRestore();
+  });
+
+  it("TestStepRunner_StateUpdatedWithHeartbeat", async () => {
+    let resolveFn: (value: QueryResult) => void;
+    const mockExecuteQuery = async (): Promise<QueryResult> => {
+      return new Promise<QueryResult>((resolve) => {
+        resolveFn = resolve;
+      });
+    };
+
+    const ctx = makeContext(tmpDir, mockExecuteQuery, {
+      watchdog: {
+        inactivityTimeoutSeconds: 10,
+        heartbeatIntervalSeconds: 1,
+        maxRetries: 0,
+      },
+    } as Partial<ForgeConfig>);
+    const costController = new CostController();
+
+    const resultPromise = runStep(
+      "heartbeat-state",
+      {
+        prompt: "Will update state with heartbeat",
+        verify: async () => true,
+      },
+      ctx,
+      costController,
+    );
+
+    // Advance to trigger heartbeat
+    await vi.advanceTimersByTimeAsync(1500);
+
+    // Resolve the query
+    resolveFn!(makeSuccessResult(0.1));
+    await vi.advanceTimersByTimeAsync(10);
+
+    await resultPromise;
+
+    // Check state has lastHeartbeat
+    const state = ctx.stateManager.load();
+    expect(state.lastHeartbeat).toBeDefined();
+    expect(typeof state.lastHeartbeat).toBe("string");
+  });
+
+  it("TestStepRunner_NormalStepUnaffectedByWatchdog", async () => {
+    // executeQueryFn that resolves immediately
+    const mockExecuteQuery = async (): Promise<QueryResult> => {
+      return makeSuccessResult(0.5);
+    };
+
+    const ctx = makeContext(tmpDir, mockExecuteQuery, {
+      watchdog: {
+        inactivityTimeoutSeconds: 120,
+        heartbeatIntervalSeconds: 30,
+        maxRetries: 2,
+      },
+    } as Partial<ForgeConfig>);
+    const costController = new CostController();
+
+    const result = await runStep(
+      "normal-step",
+      {
+        prompt: "Quick step",
+        verify: async () => true,
+      },
+      ctx,
+      costController,
+    );
+
+    expect(result.status).toBe("verified");
+    if (result.status === "verified") {
+      expect(result.costUsd).toBe(0.5);
+      expect(result.result).toBe("Step completed successfully");
+    }
+  });
+
+  // Scenario: Full pipeline step times out, retries, succeeds
+  it("TestFullPipeline_StepTimesOutAndRetries", async () => {
+    let callCount = 0;
+    const mockExecuteQuery = async (): Promise<QueryResult> => {
+      callCount++;
+      if (callCount === 1) {
+        return new Promise<QueryResult>(() => {}); // Hangs
+      }
+      return makeSuccessResult(1.0);
+    };
+
+    const ctx = makeContext(tmpDir, mockExecuteQuery, {
+      watchdog: {
+        inactivityTimeoutSeconds: 1,
+        heartbeatIntervalSeconds: 1,
+        maxRetries: 2,
+      },
+    } as Partial<ForgeConfig>);
+    const costController = new CostController();
+
+    const resultPromise = runStep(
+      "pipeline-retry",
+      {
+        prompt: "Pipeline step",
+        verify: async () => true,
+        phase: 5,
+      },
+      ctx,
+      costController,
+    );
+
+    // First timeout
+    await vi.advanceTimersByTimeAsync(1500);
+    // Second attempt succeeds
+    await vi.advanceTimersByTimeAsync(10);
+
+    const result = await resultPromise;
+    expect(result.status).toBe("verified");
+
+    // Cost tracked
+    if (result.status === "verified") {
+      expect(result.costUsd).toBe(1.0);
+    }
+
+    // State updated
+    const state = ctx.stateManager.load();
+    expect(state.totalBudgetUsed).toBe(1.0);
+  });
+
+  // Scenario: Step exhausts retries, pipeline can continue
+  it("TestFullPipeline_StepExhaustsRetriesContinues", async () => {
+    const mockExecuteQuery = async (): Promise<QueryResult> => {
+      return new Promise<QueryResult>(() => {}); // Always hangs
+    };
+
+    const ctx = makeContext(tmpDir, mockExecuteQuery, {
+      watchdog: {
+        inactivityTimeoutSeconds: 1,
+        heartbeatIntervalSeconds: 1,
+        maxRetries: 1,
+      },
+    } as Partial<ForgeConfig>);
+    const costController = new CostController();
+
+    const resultPromise = runStep(
+      "pipeline-exhaust",
+      {
+        prompt: "Pipeline step that always hangs",
+        verify: async () => true,
+      },
+      ctx,
+      costController,
+    );
+
+    // Both attempts timeout
+    await vi.advanceTimersByTimeAsync(1500);
+    await vi.advanceTimersByTimeAsync(1500);
+
+    const result = await resultPromise;
+    expect(result.status).toBe("timed_out");
+    if (result.status === "timed_out") {
+      expect(result.attempts).toBe(2);
+      expect(result.error).toContain("timed out");
+    }
+
+    // Pipeline caller can check status and continue to next step
+    // This is validated by the fact that runStep returns normally (doesn't throw)
   });
 });

@@ -138,6 +138,23 @@ export interface StepResultBudgetExceeded {
 }
 
 /**
+ * Step result when all watchdog retry attempts exhausted due to inactivity timeout.
+ *
+ * Requirement: Phase 15 — Session Watchdog
+ */
+export interface StepResultTimedOut {
+  status: "timed_out";
+  /** Total cost across all attempts */
+  costUsd: number;
+  /** Number of attempts made */
+  attempts: number;
+  /** Inactivity timeout in seconds */
+  timeoutSeconds: number;
+  /** Error message */
+  error: string;
+}
+
+/**
  * Discriminated union of all step outcomes.
  */
 export type StepResult =
@@ -145,7 +162,8 @@ export type StepResult =
   | StepResultFailed
   | StepResultSkipped
   | StepResultError
-  | StepResultBudgetExceeded;
+  | StepResultBudgetExceeded
+  | StepResultTimedOut;
 
 /**
  * Record of a single attempt in the cascade.
