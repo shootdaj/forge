@@ -19,6 +19,7 @@ import {
   buildTargetedGapFixPrompt,
   buildIncrementalGapFixPrompt,
 } from "./prompts.js";
+import { analyzeGapOverlap, limitConcurrency, type GapWithFiles } from "./gap-graph.js";
 
 /**
  * Check whether the gap history indicates convergence.
@@ -199,7 +200,7 @@ export async function verifyRequirementsBatch(
   requirementIds: string[],
   ctx: PipelineContext,
   requirementsDoc?: string,
-): Promise<Array<{ id: string; passed: boolean; gapDescription: string }>> {
+): Promise<Array<{ id: string; passed: boolean; gapDescription: string; files: string[] }>> {
   const reqList = requirementIds.map((id) => `- ${id}`).join("\n");
 
   const requirementsSection = requirementsDoc
@@ -237,10 +238,13 @@ export async function verifyRequirementsBatch(
         "After analyzing ALL requirements, output your verdicts as a single JSON code block containing an array:",
         "```json",
         "[",
-        '  { "id": "R1", "passed": true, "gapDescription": "" },',
-        '  { "id": "R2", "passed": false, "gapDescription": "Missing error handling for..." }',
+        '  { "id": "R1", "passed": true, "gapDescription": "", "files": [] },',
+        '  { "id": "R2", "passed": false, "gapDescription": "Missing error handling for...", "files": ["src/auth.ts", "src/auth.test.ts"] }',
         "]",
         "```",
+        "",
+        "For each FAILING requirement, include a \"files\" array listing the source files",
+        "that would need to be modified to fix the gap. For passing requirements, \"files\" can be empty.",
         "",
         "IMPORTANT: You MUST include a verdict for EVERY requirement listed above.",
         "Output the JSON array as the very last thing in your response.",
@@ -261,17 +265,17 @@ export async function verifyRequirementsBatch(
         const verdict = verdictMap.get(id);
         if (verdict) return verdict;
         // Missing from response — treat as gap
-        return { id, passed: false, gapDescription: "Not included in batch verification response" };
+        return { id, passed: false, gapDescription: "Not included in batch verification response", files: [] };
       });
     }
   }
 
   // Batch failed — fall back to individual verification
   console.log("[compliance] Batch verification failed, falling back to individual checks");
-  const results: Array<{ id: string; passed: boolean; gapDescription: string }> = [];
+  const results: Array<{ id: string; passed: boolean; gapDescription: string; files: string[] }> = [];
   for (const id of requirementIds) {
     const r = await verifyRequirement(id, ctx);
-    results.push({ id, ...r });
+    results.push({ id, ...r, files: [] });
   }
   return results;
 }
@@ -320,7 +324,7 @@ function extractJsonVerdict(
  */
 function extractJsonVerdictArray(
   text: string,
-): Array<{ id: string; passed: boolean; gapDescription: string }> | null {
+): Array<{ id: string; passed: boolean; gapDescription: string; files: string[] }> | null {
   // Try code block first
   const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
   const jsonStr = codeBlockMatch ? codeBlockMatch[1] : text;
@@ -339,6 +343,7 @@ function extractJsonVerdictArray(
             id: String(obj.id),
             passed: Boolean(obj.passed),
             gapDescription: String(obj.gapDescription ?? ""),
+            files: Array.isArray(obj.files) ? (obj.files as unknown[]).map(String) : [],
           };
         });
     }
@@ -360,6 +365,7 @@ function extractJsonVerdictArray(
                 id: String(obj.id),
                 passed: Boolean(obj.passed),
                 gapDescription: String(obj.gapDescription ?? ""),
+                files: Array.isArray(obj.files) ? (obj.files as unknown[]).map(String) : [],
               };
             });
         }
@@ -401,11 +407,107 @@ export function execGitCommand(cmd: string, ctx: PipelineContext): string {
 }
 
 /**
+ * Fix a single gap in its own SDK session with commit/revert.
+ *
+ * Records a git restore point, runs the fix, commits, verifies the fix,
+ * and reverts if the fix didn't work. Used by the parallel compliance loop
+ * to fix independent gaps concurrently.
+ *
+ * @param gap - The gap to fix (with file information)
+ * @param round - Current compliance round number
+ * @param currentPassing - Currently passing requirement IDs (for regression-aware prompts)
+ * @param ctx - Pipeline context
+ * @param requirementsDoc - Full requirements document text
+ * @returns Object indicating whether the fix succeeded
+ */
+async function fixSingleGap(
+  gap: GapWithFiles,
+  round: number,
+  currentPassing: string[],
+  ctx: PipelineContext,
+  requirementsDoc: string,
+): Promise<{ fixed: boolean }> {
+  // Record restore point
+  let restorePoint = "";
+  try {
+    restorePoint = execGitCommand("git rev-parse HEAD", ctx);
+  } catch {
+    // If git is not available, skip commit/revert but still fix
+  }
+
+  // Fix the gap in its own SDK session
+  const fixResult = await runStep(
+    `fix-gap-incremental-${gap.id}-round-${round}`,
+    {
+      prompt: buildIncrementalGapFixPrompt(
+        gap.id,
+        gap.description,
+        round,
+        currentPassing,
+        requirementsDoc,
+      ),
+      verify: async () => true,
+    },
+    ctx.stepRunnerContext,
+    ctx.costController,
+  );
+
+  // Handle watchdog timeout — defer gracefully
+  if (fixResult.status === "timed_out") {
+    console.log(`[compliance] Gap fix for ${gap.id} timed out — deferring`);
+    if (restorePoint) {
+      try {
+        execGitCommand(`git reset --hard ${restorePoint}`, ctx);
+      } catch {
+        console.warn(`[compliance] Warning: git reset failed for ${gap.id}`);
+      }
+    }
+    return { fixed: false };
+  }
+
+  // Commit the fix
+  if (restorePoint) {
+    try {
+      execGitCommand(
+        `git add -A && git commit -m "fix: spec compliance - ${gap.id}"`,
+        ctx,
+      );
+    } catch {
+      // If commit fails (nothing to commit), that's OK
+    }
+  }
+
+  // Verify the fixed requirement
+  const fixVerdict = await verifyRequirement(gap.id, ctx, requirementsDoc);
+
+  if (!fixVerdict.passed) {
+    // Fix didn't work — revert
+    console.log(
+      `[compliance] Fix for ${gap.id} did not resolve the gap — reverting`,
+    );
+    if (restorePoint) {
+      try {
+        execGitCommand(`git reset --hard ${restorePoint}`, ctx);
+      } catch {
+        console.warn(`[compliance] Warning: git reset failed for ${gap.id}`);
+      }
+    }
+    return { fixed: false };
+  }
+
+  console.log(`[compliance] Fix for ${gap.id} verified`);
+  return { fixed: true };
+}
+
+/**
  * Run the incremental spec compliance loop.
  *
- * Fixes gaps one at a time: each gap gets its own SDK session, is verified
- * (including regression checks on all previously-passing requirements), and
- * is committed on success or reverted via git reset --hard on regression.
+ * Analyzes file overlap between gaps and fixes independent gaps concurrently.
+ * Gaps sharing files are placed in different execution groups and run sequentially
+ * across groups. Within each group, gaps run in parallel up to maxParallelGapFixes.
+ *
+ * Each individual gap fix follows the Phase 13 pattern: record restore point,
+ * fix, commit, verify, revert on failure.
  *
  * Gap count must monotonically decrease (or stay flat from deferred gaps).
  *
@@ -487,112 +589,118 @@ export async function runIncrementalComplianceLoop(
       };
     }
 
-    // Fix each gap individually with commit/revert
+    // Fix gaps using parallel execution for independent gaps
     const currentPassing = [...passingSet];
     const deferredGaps: Array<{ id: string; description: string }> = [];
 
-    for (const gap of gaps) {
-      // Record restore point
-      let restorePoint: string;
-      try {
-        restorePoint = execGitCommand("git rev-parse HEAD", ctx);
-      } catch {
-        // If git is not available, skip commit/revert but still fix
-        restorePoint = "";
-      }
+    // Convert gaps to GapWithFiles using file info from verdicts
+    const gapsWithFiles: GapWithFiles[] = gaps.map((gap) => {
+      const verdict = verdicts.find((v) => v.id === gap.id);
+      return {
+        id: gap.id,
+        description: gap.description,
+        files: verdict?.files ?? [],
+      };
+    });
 
-      // Fix the gap in its own SDK session
-      const fixResult = await runStep(
-        `fix-gap-incremental-${gap.id}-round-${round}`,
-        {
-          prompt: buildIncrementalGapFixPrompt(
-            gap.id,
-            gap.description,
-            round,
-            currentPassing,
-            requirementsDoc,
-          ),
-          verify: async () => true,
-        },
-        ctx.stepRunnerContext,
-        ctx.costController,
-      );
+    // Analyze file overlap to find independent groups
+    const independentGroups = analyzeGapOverlap(gapsWithFiles);
+    const maxConcurrency = ctx.config.maxParallelGapFixes ?? 3;
 
-      // Handle watchdog timeout — defer gracefully
-      if (fixResult.status === "timed_out") {
-        console.log(`[compliance] Gap fix for ${gap.id} timed out — deferring`);
-        if (restorePoint) {
-          try {
-            execGitCommand(`git reset --hard ${restorePoint}`, ctx);
-          } catch {
-            console.warn(`[compliance] Warning: git reset failed for ${gap.id}`);
+    console.log(
+      `[compliance] Round ${round}: ${gaps.length} gaps in ${independentGroups.length} group(s), ` +
+        `max concurrency ${maxConcurrency}`,
+    );
+
+    // Process each group of independent gaps
+    for (const group of independentGroups) {
+      // Create fix tasks for each gap in this independent group
+      const fixTasks = group.map((gapId) => {
+        const gap = gapsWithFiles.find((g) => g.id === gapId)!;
+        return () =>
+          fixSingleGap(gap, round, currentPassing, ctx, requirementsDoc);
+      });
+
+      // Run independent gaps concurrently (up to maxConcurrency)
+      const results = await limitConcurrency(fixTasks, maxConcurrency);
+
+      // Process results: update passing set and deferred gaps
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        const gapId = group[i];
+        if (result.status === "fulfilled") {
+          if (result.value.fixed) {
+            currentPassing.push(gapId);
+          } else {
+            const gap = gapsWithFiles.find((g) => g.id === gapId)!;
+            deferredGaps.push({ id: gap.id, description: gap.description });
           }
-        }
-        deferredGaps.push(gap);
-        continue;
-      }
-
-      // Commit the fix
-      if (restorePoint) {
-        try {
-          execGitCommand(
-            `git add -A && git commit -m "fix: spec compliance - ${gap.id}"`,
-            ctx,
+        } else {
+          // Promise rejected — treat as deferred
+          const gap = gapsWithFiles.find((g) => g.id === gapId)!;
+          deferredGaps.push({ id: gap.id, description: gap.description });
+          console.warn(
+            `[compliance] Gap fix for ${gapId} threw an error — deferring`,
           );
-        } catch {
-          // If commit fails (nothing to commit), that's OK
         }
       }
 
-      // Verify the fixed requirement
-      const fixVerdict = await verifyRequirement(gap.id, ctx, requirementsDoc);
+      // Post-group regression check on all previously-passing requirements
+      // For single-gap groups, this catches regressions from individual fixes
+      // For multi-gap groups, this catches cross-gap interactions that file analysis missed
+      const fixedInGroup = group.filter((gapId) => {
+        const idx = group.indexOf(gapId);
+        const result = results[idx];
+        return result.status === "fulfilled" && result.value.fixed;
+      });
 
-      if (!fixVerdict.passed) {
-        // Fix didn't work — revert
-        console.log(`[compliance] Fix for ${gap.id} did not resolve the gap — reverting`);
-        if (restorePoint) {
-          try {
-            execGitCommand(`git reset --hard ${restorePoint}`, ctx);
-          } catch {
-            console.warn(`[compliance] Warning: git reset failed for ${gap.id}`);
-          }
-        }
-        deferredGaps.push(gap);
-        continue;
-      }
-
-      // Regression check: verify all previously-passing requirements still pass
-      if (currentPassing.length > 0) {
-        const regressionVerdicts = await verifyRequirementsBatch(
-          currentPassing,
-          ctx,
-          requirementsDoc,
+      if (currentPassing.length > 0 && fixedInGroup.length > 0) {
+        // Check regression on all passing reqs EXCEPT those just fixed in this group
+        const regressCandidates = currentPassing.filter(
+          (id) => !fixedInGroup.includes(id),
         );
-
-        const regressions = regressionVerdicts.filter((v) => !v.passed);
-
-        if (regressions.length > 0) {
-          // Regression detected — revert
-          console.log(
-            `[compliance] Fix for ${gap.id} caused ${regressions.length} regression(s): ` +
-              regressions.map((r) => r.id).join(", ") +
-              " — reverting",
+        if (regressCandidates.length > 0) {
+          const regressionVerdicts = await verifyRequirementsBatch(
+            regressCandidates,
+            ctx,
+            requirementsDoc,
           );
-          if (restorePoint) {
+          const regressions = regressionVerdicts.filter((v) => !v.passed);
+          if (regressions.length > 0) {
+            console.log(
+              `[compliance] Post-group regression detected: ${regressions.length} requirement(s) regressed — ` +
+                regressions.map((r) => r.id).join(", ") +
+                " — reverting group fixes",
+            );
+            // Revert all fixes in this group that succeeded
+            for (const fixedGapId of fixedInGroup) {
+              // Remove from currentPassing
+              const passIdx = currentPassing.indexOf(fixedGapId);
+              if (passIdx !== -1) {
+                currentPassing.splice(passIdx, 1);
+              }
+              // Add back to deferred
+              const gap = gapsWithFiles.find((g) => g.id === fixedGapId)!;
+              deferredGaps.push({ id: gap.id, description: gap.description });
+            }
+            // Revert via git
             try {
-              execGitCommand(`git reset --hard ${restorePoint}`, ctx);
+              execGitCommand("git rev-parse HEAD", ctx); // check git availability
+              // Revert to the state before this group started
+              // Note: individual fixSingleGap already committed, so we need to revert those
+              for (const _fixedGapId of fixedInGroup) {
+                try {
+                  execGitCommand("git reset --hard HEAD~1", ctx);
+                } catch {
+                  // Best effort revert
+                }
+              }
             } catch {
-              console.warn(`[compliance] Warning: git reset failed for ${gap.id}`);
+              // Git not available
             }
           }
-          deferredGaps.push(gap);
-          continue;
         }
       }
-
-      // Fix succeeded with no regressions — update passing set
-      console.log(`[compliance] Fix for ${gap.id} verified — no regressions`);
-      currentPassing.push(gap.id);
     }
 
     // Record final gap count after incremental fixes

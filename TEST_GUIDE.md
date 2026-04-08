@@ -333,3 +333,21 @@ Requirements covered: N/A (internal improvement — Session Watchdog for stuck S
 **Updated test files:**
 - `src/step-runner/step-runner.test.ts` — 7 new tests in "Session Watchdog Integration" block: watchdog timeout retries step, exhausts retries, heartbeat emitted, state updated with heartbeat, normal step unaffected, pipeline timeout-retry-succeed, pipeline exhaust-continue
 - `src/config/config.test.ts` — 3 new tests: watchdog defaults (120s/30s/2), custom values, partial override
+
+### Phase 16: Parallel Gap Fixing (2026-04-08)
+
+| Tier | Tests | Passed | Failed |
+|---|---|---|---|
+| Unit | 22 | 22 | 0 |
+| Integration | 5 | 5 | 0 |
+| Scenario | 2 | 2 | 0 |
+| **Total** | **29** | **29** | **0** |
+
+Requirements covered: N/A (internal optimization — parallel gap fixing for spec compliance speedup)
+
+**New test files:**
+- `src/pipeline/gap-graph.test.ts` — 22 unit tests: buildConflictGraph (6 — shared files, empty files, single gap, case-insensitive, no gaps, multiple shared), colorGraph (5 — independent, fully connected, valid coloring, empty, linear chain), analyzeGapOverlap (5 — independent, overlapping, no file info, no gaps, complex overlap), limitConcurrency (6 — results in order, concurrency limit, rejected promises, empty array, sequential, large concurrency)
+
+**Updated test files:**
+- `src/pipeline/spec-compliance.test.ts` — 7 new tests: parallel execution with independent gaps (1), overlapping gaps sequential (1), no file info fallback (1), mixed results (1), config respect (1), scenario mixed overlap convergence (1), monotonic gap decrease (1)
+- All 10+ existing test helpers updated with `maxParallelGapFixes: 3` config field

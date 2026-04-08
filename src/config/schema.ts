@@ -128,6 +128,7 @@ export const ForgeConfigSchema = z.object({
   max_budget_per_step: z.number().min(0).default(15.0),
   max_retries: z.number().int().min(0).default(3),
   max_compliance_rounds: z.number().int().min(0).default(5),
+  max_parallel_gap_fixes: z.number().int().min(1).default(3),
   max_turns_per_step: z.number().int().min(1).default(200),
   testing: z.any().default({}).pipe(TestingConfigSchema),
   verification: z.any().default({}).pipe(VerificationConfigSchema),
@@ -154,6 +155,7 @@ export interface ForgeConfig {
   maxBudgetPerStep: number;
   maxRetries: number;
   maxComplianceRounds: number;
+  maxParallelGapFixes: number;
   maxTurnsPerStep: number;
   testing: {
     stack: string;
