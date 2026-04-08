@@ -8,6 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import * as fs from "node:fs";
 import type { ForgeState } from "../state/schema.js";
 import type { ForgeConfig } from "../config/schema.js";
 import type { PipelineResult } from "../pipeline/types.js";
@@ -72,6 +73,31 @@ vi.mock("./traceability.js", () => ({
   createTestGuide: vi.fn(),
   injectTestingMethodology: vi.fn(),
 }));
+
+const mockGatherRequirements = vi.fn();
+
+vi.mock("../requirements/index.js", () => ({
+  gatherRequirements: (...args: unknown[]) => mockGatherRequirements(...args),
+}));
+
+const mockRunDesignSelection = vi.fn();
+const mockDetectGuiApp = vi.fn();
+
+vi.mock("../phase-runner/substeps/design.js", () => ({
+  runDesignSelection: (...args: unknown[]) => mockRunDesignSelection(...args),
+  detectGuiApp: (...args: unknown[]) => mockDetectGuiApp(...args),
+}));
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    existsSync: vi.fn(actual.existsSync),
+    readFileSync: vi.fn(actual.readFileSync),
+    writeFileSync: vi.fn(),
+    mkdirSync: vi.fn(),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -403,5 +429,145 @@ describe("createCli", () => {
     // Verify state fields are reflected in output
     expect(output).toContain("Status: wave_2 | Wave: 2");
     expect(output).toContain("$45.00");
+  });
+});
+
+describe("forge init TTY and re-init guards", () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+  let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+  let existsSyncMock: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {}) as unknown as (code?: number) => never);
+    mockLoadConfig.mockResolvedValue(createTestConfig());
+    mockCreateInitialState.mockReturnValue(createTestState());
+    mockDetectGuiApp.mockReturnValue(false);
+    mockGatherRequirements.mockResolvedValue({
+      requirements: [],
+      formattedDoc: "# Requirements\n",
+    });
+    mockRunDesignSelection.mockResolvedValue(false);
+    // Default: REQUIREMENTS.md does not exist
+    existsSyncMock = vi.spyOn(fs, "existsSync").mockReturnValue(false);
+    vi.spyOn(fs, "writeFileSync").mockImplementation(() => {});
+    vi.spyOn(fs, "mkdirSync").mockImplementation(() => {});
+    vi.spyOn(fs, "readFileSync").mockReturnValue("");
+  });
+
+  afterEach(() => {
+    consoleSpy.mockRestore();
+    consoleWarnSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it("TestForgeInit_SkipsGatheringWhenNonTTY", async () => {
+    // Arrange: non-TTY stdin, no existing REQUIREMENTS.md
+    const isTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+
+    try {
+      existsSyncMock.mockReturnValue(false);
+
+      const { createCli } = await import("./index.js");
+      const cli = createCli();
+      await cli.parseAsync(["node", "forge", "init"]);
+
+      // gatherRequirements should NOT be called
+      expect(mockGatherRequirements).not.toHaveBeenCalled();
+      // Should log the non-interactive message
+      const allLogs = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+      expect(allLogs).toContain("Non-interactive mode — skipping requirements gathering");
+    } finally {
+      if (isTTYDescriptor) {
+        Object.defineProperty(process.stdin, "isTTY", isTTYDescriptor);
+      } else {
+        Object.defineProperty(process.stdin, "isTTY", { value: undefined, configurable: true });
+      }
+    }
+  });
+
+  it("TestForgeInit_CallsGatheringWhenTTYAndNoRequirementsFile", async () => {
+    // Arrange: TTY stdin, no existing REQUIREMENTS.md
+    const isTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+
+    try {
+      existsSyncMock.mockReturnValue(false);
+
+      const { createCli } = await import("./index.js");
+      const cli = createCli();
+      await cli.parseAsync(["node", "forge", "init"]);
+
+      // gatherRequirements SHOULD be called
+      expect(mockGatherRequirements).toHaveBeenCalled();
+    } finally {
+      if (isTTYDescriptor) {
+        Object.defineProperty(process.stdin, "isTTY", isTTYDescriptor);
+      } else {
+        Object.defineProperty(process.stdin, "isTTY", { value: undefined, configurable: true });
+      }
+    }
+  });
+
+  it("TestForgeInit_SkipsGatheringWhenRequirementsFileAlreadyExists", async () => {
+    // Arrange: REQUIREMENTS.md already exists (regardless of TTY)
+    const isTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+
+    try {
+      existsSyncMock.mockImplementation((p: fs.PathLike) =>
+        String(p) === "REQUIREMENTS.md" ? true : false
+      );
+
+      const { createCli } = await import("./index.js");
+      const cli = createCli();
+      await cli.parseAsync(["node", "forge", "init"]);
+
+      // gatherRequirements should NOT be called — file already exists
+      expect(mockGatherRequirements).not.toHaveBeenCalled();
+      // Should log the existing-file message
+      const allLogs = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+      expect(allLogs).toContain("REQUIREMENTS.md already exists — skipping requirements gathering");
+    } finally {
+      if (isTTYDescriptor) {
+        Object.defineProperty(process.stdin, "isTTY", isTTYDescriptor);
+      } else {
+        Object.defineProperty(process.stdin, "isTTY", { value: undefined, configurable: true });
+      }
+    }
+  });
+
+  it("TestForgeInit_SkipsDesignSelectionWhenNonTTY", async () => {
+    // Arrange: non-TTY stdin, GUI app detected
+    const isTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+
+    try {
+      existsSyncMock.mockReturnValue(false);
+      mockDetectGuiApp.mockReturnValue(true);
+
+      const { createCli } = await import("./index.js");
+      const cli = createCli();
+      await cli.parseAsync(["node", "forge", "init"]);
+
+      // runDesignSelection should NOT be called in non-TTY mode
+      expect(mockRunDesignSelection).not.toHaveBeenCalled();
+    } finally {
+      if (isTTYDescriptor) {
+        Object.defineProperty(process.stdin, "isTTY", isTTYDescriptor);
+      } else {
+        Object.defineProperty(process.stdin, "isTTY", { value: undefined, configurable: true });
+      }
+    }
   });
 });
